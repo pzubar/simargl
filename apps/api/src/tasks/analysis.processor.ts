@@ -5,12 +5,13 @@ import { Model } from 'mongoose';
 import { Content } from '../schemas/content.schema';  
 import { Prompt } from '../schemas/prompt.schema';  
 import { Channel } from '../schemas/channel.schema';
-import { GoogleGenerativeAI } from '@google/generative-ai';
+import { VideoAnalysisService } from '../services/video-analysis.service';
 import { ConfigService } from '@nestjs/config';
+import { Logger } from '@nestjs/common';
 
 @Processor('analysis')  
 export class AnalysisProcessor extends WorkerHost {  
-  private genAI: GoogleGenerativeAI;
+  private readonly logger = new Logger(AnalysisProcessor.name);
 
   constructor(  
     @InjectModel(Content.name) private contentModel: Model<Content>,  
@@ -18,13 +19,9 @@ export class AnalysisProcessor extends WorkerHost {
     @InjectModel(Channel.name) private channelModel: Model<Channel>,
     @InjectQueue('stats') private statsQueue: Queue,
     private configService: ConfigService,
+    private videoAnalysisService: VideoAnalysisService,
   ) {
     super();
-    const apiKey = this.configService.get<string>('GEMINI_API_KEY');
-    if (!apiKey) {
-      throw new Error('GEMINI_API_KEY is required');
-    }
-    this.genAI = new GoogleGenerativeAI(apiKey);
   }
 
   async process(job: Job<any, any, string>): Promise<any> {  
@@ -43,30 +40,24 @@ export class AnalysisProcessor extends WorkerHost {
       return;
     }
 
-    const prompt = await this.promptModel.findOne({ isDefault: true }).sort({ version: -1 }).exec();  
-    if (!prompt) throw new Error('No default prompt found!');
-
-    let finalPrompt = prompt.promptTemplate;  
-    finalPrompt = finalPrompt.replace('{{TITLE}}', content.title || '');  
-    finalPrompt = finalPrompt.replace('{{TRANSCRIPT}}', content.data?.transcript || '');  
-    finalPrompt = finalPrompt.replace('{{AUTHOR_CONTEXT}}', channel.authorContext || '');
-
     try {
-      const model = this.genAI.getGenerativeModel({ model: "gemini-1.5-flash"});
-      const result = await model.generateContent(finalPrompt);
-      const response = await result.response;
-      const analysisResult = JSON.parse(response.text());
-
+      // No need to fetch the prompt here anymore, the service does it.
+      const youtubeUrl = `https://www.youtube.com/watch?v=${content.sourceContentId}`;
+      this.logger.log(`Starting video analysis for: ${youtubeUrl}`);
+      
+      const { analysis, prompt } = await this.videoAnalysisService.analyzeYouTubeVideo(youtubeUrl);
+      
       await this.contentModel.updateOne({ _id: content._id }, {
         analysis: {
           promptVersion: prompt.version,
           promptName: prompt.promptName,
-          result: analysisResult,
+          promptId: prompt._id,
+          result: analysis,
         },
         status: 'ANALYZED',
       });
-        
-      // Add a one-time job to update stats
+      
+      this.logger.log(`✅ Successfully analyzed video: ${content.title || 'Unknown'}`);
       await this.statsQueue.add('update-stats', { contentId: content._id });
     } catch (error) {
       console.error(`Failed to analyze content ${content._id}:`, error);

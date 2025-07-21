@@ -1,28 +1,28 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';  
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document } from 'mongoose';
 
-@Schema({ timestamps: true })  
-export class Channel extends Document {  
-  @Prop({ required: true, enum: ['YOUTUBE', 'TELEGRAM', 'TIKTOK'] })  
+@Schema({ timestamps: true })
+export class Channel extends Document {
+  @Prop({ required: true, enum: ['YOUTUBE', 'TELEGRAM', 'TIKTOK'] })
   sourceType: string;
 
-  @Prop({ required: true, unique: true })  
+  @Prop({ required: true, unique: true })
   sourceId: string;
 
-  @Prop({ required: true })  
+  @Prop({ required: true })
   name: string;
 
-  @Prop({ default: 10 })  
+  @Prop({ default: 10 })
   fetchLastN: number;
 
-  @Prop({ default: '0 */6 * * *' })  
+  @Prop({ default: '0 */6 * * *' })
   cronPattern: string;
 
-  @Prop()  
+  @Prop()
   authorContext?: string;
 
-  @Prop({ type: Object })  
-  metadata?: Record<string, any>;  
+  @Prop({ type: Object })
+  metadata?: Record<string, any>;
 }
 
 export const ChannelSchema = SchemaFactory.createForClass(Channel);

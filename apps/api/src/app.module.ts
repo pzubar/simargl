@@ -4,6 +4,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { BullModule } from '@nestjs/bullmq';
 import { TasksModule } from './tasks/tasks.module';
 import { ChannelsModule } from './channels/channels.module';
+import { AdminModule } from './admin/admin.module';
 import { ApiController } from './api.controller';
 import { ApiService } from './api.service';
 
@@ -83,6 +84,7 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 
     // Feature Modules
     ChannelsModule,
+    AdminModule,
     TasksModule,
   ],
   controllers: [ApiController],

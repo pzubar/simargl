@@ -13,6 +13,9 @@ import { ContentProcessingProcessor } from './content-processing.processor';
 import { AnalysisProcessor } from './analysis.processor';  
 import { StatsProcessor } from './stats.processor';
 
+// Import Services
+import { VideoAnalysisService } from '../services/video-analysis.service';
+
 @Module({  
   imports: [  
     // Local model registration for processors to inject
@@ -32,7 +35,8 @@ import { StatsProcessor } from './stats.processor';
     ChannelPollProcessor,  
     ContentProcessingProcessor,  
     AnalysisProcessor,  
-    StatsProcessor,  
+    StatsProcessor,
+    VideoAnalysisService,
   ],  
 })  
 export class TasksModule {}

@@ -7,10 +7,11 @@ async function bootstrap() {
   const app = await NestFactory.createApplicationContext(AppModule);
   const promptModel = app.get(getModelToken(Prompt.name));
 
-  const defaultPrompt = {
-    promptName: 'Default Discourse Analysis',
-    version: 1,
-    promptTemplate: `
+  const prompts = [
+    {
+      promptName: 'Default Video Analysis',
+      version: 1,
+      promptTemplate: `
 <persona>
         You are an expert, neutral, and objective multimodal discourse analyst and corpus linguist. Your specialization is the application of the Narrative Policy Framework (NPF) and critical discourse analysis to media content. You identify narrative structures, rhetorical strategies, emotional appeals, and potential manipulation techniques with academic precision.
     </persona>
@@ -33,7 +34,7 @@ async function bootstrap() {
         Your final response MUST be a single, valid JSON object and nothing else.
         - Do not provide any text, explanation, or markdown formatting (like \`\`\`json) outside of the JSON object.
         - Adhere strictly to the schema provided in the example below.
-        - For any fields that are not applicable or for which no information is present, use an empty string \`""\` for text fields, an empty array \`\` for lists, or \`null\` for non-string optional fields.
+        - For any fields that are not applicable or for which no information is present, use an empty string \`""\` for text fields, an empty array \`[]\` for lists, or \`null\` for non-string optional fields.
         - The entire output must be enclosed in a single pair of curly braces \`{}\`.
     </output_format>
 
@@ -114,12 +115,18 @@ async function bootstrap() {
         }
       }
     }
-    </json_schema_example>`,
-    isDefault: true,
-  };
+    </json_schema_example>
+`,
+      isDefault: true,
+      description: 'Default prompt for analyzing YouTube video content.',
+    },
+  ];
 
-  await promptModel.updateOne({ promptName: defaultPrompt.promptName }, defaultPrompt, { upsert: true });
-  console.log('Default prompt seeded.');
+  for (const promptData of prompts) {
+    await promptModel.updateOne({ promptName: promptData.promptName }, promptData, { upsert: true });
+    console.log(`Prompt "${promptData.promptName}" seeded.`);
+  }
+
   await app.close();
 }
 

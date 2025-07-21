@@ -46,7 +46,7 @@ export class ChannelPollProcessor extends WorkerHost {
           type: 'video',
         });
 
-        console.log(`Fetched ${response.data.items.length} videos for channel ${channel.sourceId}`, response);
+        console.log(`Fetched ${response.data.items.length} videos for channel ${channel.sourceId}`);
 
         if (response.data.items) {
           for (const item of response.data.items) {

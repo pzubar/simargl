@@ -9,9 +9,10 @@
     "build": "nest build",
     "format": "prettier --write \"apps/**/*.ts\" \"libs/**/*.ts\"",
     "start": "nest start",
-    "start:dev": "nest start --watch",
-    "start:debug": "nest start --debug --watch",
-    "start:prod": "node dist/apps/simargl/main",
+    "start:dev": "nest start --watch --preserveWatchOutput api",
+    "seed:dev": "ts-node -r tsconfig-paths/register apps/api/src/scripts/seed.ts",
+    "start:debug": "nest start --debug --watch api",
+    "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "test:watch": "jest --watch",
@@ -27,8 +28,6 @@
     "docker:prod:down": "docker-compose down"
   },
   "dependencies": {
-    "@adminjs/express": "^5.1.0",
-    "@adminjs/mongoose": "^3.0.3",
     "@bull-board/api": "^6.11.1",
     "@bull-board/express": "^6.11.1",
     "@bull-board/nestjs": "^6.11.1",
@@ -40,15 +39,15 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/mongoose": "^11.0.3",
     "@nestjs/platform-express": "^11.0.1",
-    "adminjs": "^6.8.7",
     "bullmq": "^5.56.4",
     "express-formidable": "^1.2.0",
     "express-session": "^1.18.2",
     "googleapis": "^153.0.0",
-    "mongoose": "^5.0.0",
+    "mongoose": "^8.16.4",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",
-    "youtube-transcript": "^1.2.1"
+    "webpack": "^5.99.6",
+    "winston": "^3.14.2"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.2.0",
