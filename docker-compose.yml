@@ -1,0 +1,49 @@
+services:  
+  # MongoDB Database Service  
+  mongodb:  
+    image: mongo:6.0  
+    container_name: mongodb  
+    restart: unless-stopped  
+    ports:  
+      - "27017:27017"  
+    volumes:  
+      - mongo_data:/data/db  
+    networks:  
+      - app-network
+
+  # Redis Service for BullMQ  
+  redis:  
+    image: redis:7.0-alpine  
+    container_name: redis  
+    restart: unless-stopped  
+    ports:  
+      - "6379:6379"  
+    volumes:  
+      - redis_data:/data  
+    networks:  
+      - app-network
+
+  # NestJS API Service  
+  api:  
+    build:  
+      context: .  
+      dockerfile: Dockerfile  
+    container_name: api  
+    restart: unless-stopped  
+    env_file:  
+      - .env  
+    ports:  
+      - "${PORT}:${PORT}"  
+    depends_on:  
+      - mongodb  
+      - redis  
+    networks:  
+      - app-network
+
+volumes:  
+  mongo_data:  
+  redis_data:
+
+networks:  
+  app-network:  
+    driver: bridge
