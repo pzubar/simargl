@@ -10,11 +10,13 @@ import { Prompt, PromptSchema } from '../schemas/prompt.schema';
 // Import Processors  
 import { ChannelPollProcessor } from './channel-poll.processor';  
 import { ContentProcessingProcessor } from './content-processing.processor';  
+import { MetadataProcessingProcessor } from './metadata-processing.processor';
 import { AnalysisProcessor } from './analysis.processor';  
 import { StatsProcessor } from './stats.processor';
 
 // Import Services
 import { VideoAnalysisService } from '../services/video-analysis.service';
+import { QuotaManagerService } from '../services/quota-manager.service';
 
 @Module({  
   imports: [  
@@ -27,6 +29,7 @@ import { VideoAnalysisService } from '../services/video-analysis.service';
     BullModule.registerQueue(  
       { name: 'channel-poll' },  
       { name: 'content-processing' },  
+      { name: 'metadata-processing' },
       { name: 'analysis' },  
       { name: 'stats' },  
     ),  
@@ -34,9 +37,11 @@ import { VideoAnalysisService } from '../services/video-analysis.service';
   providers: [  
     ChannelPollProcessor,  
     ContentProcessingProcessor,  
+    MetadataProcessingProcessor,
     AnalysisProcessor,  
     StatsProcessor,
     VideoAnalysisService,
+    QuotaManagerService,
   ],  
 })  
 export class TasksModule {}

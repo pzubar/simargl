@@ -7,6 +7,7 @@ import { ChannelsModule } from './channels/channels.module';
 import { AdminModule } from './admin/admin.module';
 import { ApiController } from './api.controller';
 import { ApiService } from './api.service';
+import { QuotaManagerService } from './services/quota-manager.service';
 
 // Import Schemas for global registration
 import { Channel, ChannelSchema } from './schemas/channel.schema';
@@ -53,6 +54,7 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
     BullModule.registerQueue(
       { name: 'channel-poll' },
       { name: 'content-processing' },
+      { name: 'metadata-processing' },
       { name: 'analysis' },
       { name: 'stats' },
     ),
@@ -73,6 +75,11 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
     }),
 
     BullBoardModule.forFeature({
+      name: 'metadata-processing',
+      adapter: BullMQAdapter,
+    }),
+
+    BullBoardModule.forFeature({
       name: 'analysis',
       adapter: BullMQAdapter,
     }),
@@ -88,6 +95,6 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
     TasksModule,
   ],
   controllers: [ApiController],
-  providers: [ApiService],
+  providers: [ApiService, QuotaManagerService],
 })
 export class AppModule {}

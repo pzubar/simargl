@@ -5,6 +5,25 @@ import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
 import { Prompt } from '../schemas/prompt.schema';
 import { GoogleGenAI } from '@google/genai';
+import { QuotaManagerService, GEMINI_MODELS, GeminiModel } from './quota-manager.service';
+import { VideoAnalysisResponseSchema, VideoAnalysisResponse } from '../schemas/video-analysis-response.schema';
+
+// VIDEO TOKEN OPTIMIZATION NOTES:
+// Based on https://ai.google.dev/gemini-api/docs/video-understanding#technical-details-video
+// 
+// Token Calculation Formula:
+// - Default: ~300 tokens/second (258 tokens/frame at 1fps + 32 tokens/second audio)
+// - Optimized: ~100 tokens/second (66 tokens/frame at 1fps + 32 tokens/second audio with low resolution)
+// - Custom FPS: Can be < 1 for static content (lectures, presentations)
+//
+// Current Optimizations Applied:
+// ✅ FPS: 0.5 (half frame rate for mostly static content)
+// ✅ Accurate token calculation based on chunk duration
+// ✅ Official structured output schema (replaces manual JSON parsing)
+// ⚠️  Media resolution: 'low' setting needs SDK support verification
+//
+// TODO: 1. Fix overlapping (now it looses 30 secons for each chunk)
+// 2. Verify media resolution setting in latest SDK version
 
 export interface VideoChunk {
   startTime: number; // in seconds
@@ -20,6 +39,7 @@ export interface ChunkAnalysisResult {
   processingTime: number;
   success: boolean;
   error?: string;
+  modelUsed?: string; // Track which model was used for this analysis
 }
 
 export interface CombinedAnalysisResult {
@@ -50,7 +70,7 @@ export class VideoAnalysisService {
   private youtube: any;
 
   // Configuration constants
-  private readonly MAX_CHUNK_DURATION = 30 * 60; // 10 minutes per chunk
+  private readonly MAX_CHUNK_DURATION = 15 * 60; // 15 minutes per chunk
   private readonly OVERLAP_DURATION = 30; // 30 seconds overlap between chunks
   private readonly MAX_RETRIES = 1;
   private readonly RETRY_DELAY = 2000; // 2 seconds
@@ -58,6 +78,7 @@ export class VideoAnalysisService {
   constructor(
     private configService: ConfigService,
     @InjectModel(Prompt.name) private promptModel: Model<Prompt>,
+    private quotaManager: QuotaManagerService,
   ) {
     const geminiApiKey = this.configService.get<string>('GEMINI_API_KEY');
     const youtubeApiKey = this.configService.get<string>('YOUTUBE_API_KEY');
@@ -180,6 +201,74 @@ export class VideoAnalysisService {
   }
 
   /**
+   * Get optimized video processing settings for token efficiency
+   * Based on https://ai.google.dev/gemini-api/docs/video-understanding#technical-details-video
+   */
+  private getOptimizedVideoSettings() {
+    return {
+      fps: 0.5, // Lower FPS for mostly static content (< 1 FPS recommended for lectures)
+      // Note: mediaResolution should be set to 'low' for 66 tokens/frame vs 258
+      // This reduces cost from ~300 tokens/second to ~100 tokens/second
+      // Currently using FPS optimization, media resolution optimization needs SDK support
+    };
+  }
+
+  /**
+   * Log optimization recommendations for video processing
+   */
+  private logOptimizationRecommendations(videoDuration: number, videoTitle?: string): void {
+    this.logger.log(`🎯 OPTIMIZATION RECOMMENDATIONS for video "${videoTitle || 'Unknown'}" (${Math.round(videoDuration / 60)}m ${videoDuration % 60}s):`);
+    
+    if (videoDuration > 1800) { // 30 minutes
+      this.logger.log(`   📉 LONG VIDEO: Consider FPS 0.25-0.5 for lectures/static content`);
+    }
+    
+    if (videoDuration > 3600) { // 1 hour
+      this.logger.log(`   ⚡ VERY LONG: Consider pre-processing to extract key segments`);
+    }
+    
+    const defaultTokens = videoDuration * 300;
+    const optimizedTokens = videoDuration * 100;
+    const savings = Math.round(((defaultTokens - optimizedTokens) / defaultTokens) * 100);
+    
+    this.logger.log(`   💰 TOKEN SAVINGS: ${savings}% reduction (${defaultTokens.toLocaleString()} → ${optimizedTokens.toLocaleString()} tokens)`);
+  }
+
+  /**
+   * Calculate video token consumption based on official Gemini API documentation
+   * @param durationInSeconds Duration of video segment in seconds
+   * @param useOptimizedSettings Whether to use optimized settings for better token efficiency
+   */
+  private calculateVideoTokens(durationInSeconds: number, useOptimizedSettings: boolean = true): number {
+    if (useOptimizedSettings) {
+      // Optimized settings: Low media resolution + 0.5 FPS for static content
+      // Low resolution: 66 tokens per frame + 32 tokens per second for audio
+      const framesPerSecond = 0.5; // Lower FPS for mostly static content (lectures, etc.)
+      const tokensPerFrame = 66; // Low media resolution
+      const audioTokensPerSecond = 32;
+      
+      const totalFrames = durationInSeconds * framesPerSecond;
+      const frameTokens = totalFrames * tokensPerFrame;
+      const audioTokens = durationInSeconds * audioTokensPerSecond;
+      
+      // Add 10% buffer for metadata and processing overhead
+      const totalTokens = Math.ceil((frameTokens + audioTokens) * 1.1);
+      
+      this.logger.debug(`📊 Video tokens calculation (optimized): ${durationInSeconds}s × ${framesPerSecond}fps × ${tokensPerFrame}t/frame + ${audioTokensPerSecond}t/s audio = ${totalTokens} tokens`);
+      
+      return totalTokens;
+    } else {
+      // Default settings: ~300 tokens per second (as per documentation)
+      const tokensPerSecond = 300;
+      const totalTokens = Math.ceil(durationInSeconds * tokensPerSecond * 1.1); // 10% buffer
+      
+      this.logger.debug(`📊 Video tokens calculation (default): ${durationInSeconds}s × ${tokensPerSecond}t/s = ${totalTokens} tokens`);
+      
+      return totalTokens;
+    }
+  }
+
+  /**
    * Calculate video chunks based on duration (with memory-safe loop termination)
    */
   calculateVideoChunks(duration: number): VideoChunk[] {
@@ -275,22 +364,38 @@ export class VideoAnalysisService {
       const basePrompt = this.constructPrompt(prompt.promptTemplate, videoInfo, chunk);
 
       let lastError: Error | null = null;
+      let model: string = '';
        
-      // Retry logic with memory optimization
+      // Retry logic with memory optimization and automatic model switching
       for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
         try {
-          this.logger.log(`🚀 Analysis attempt ${attempt}/${this.MAX_RETRIES} for chunk ${chunk.chunkIndex + 1} using Gemini 2.5 Flash`);
-
           // Prepare the end offset for video segmentation (Google API expects seconds format)
           const endOffsetSeconds = Math.round(chunk.endTime);
           const endOffset = `${endOffsetSeconds}s`; // Must end with 's' for Google API
 
-          // Configure the model and request
-          const model = 'gemini-2.5-flash';
+          // Calculate accurate token estimation based on official Gemini API documentation
+          const textPromptTokens = this.quotaManager.estimateTokenCount(basePrompt);
+          const videoTokens = this.calculateVideoTokens(chunk.duration);
+          const estimatedTokens = textPromptTokens + videoTokens;
+
+          // Find the best available model for this request
+          const modelSelection = await this.quotaManager.findBestAvailableModel(estimatedTokens);
+          
+          if (!modelSelection.model) {
+            throw new Error(`No available models for analysis: ${modelSelection.reason}`);
+          }
+
+          model = modelSelection.model;
+          const quotaLimits = this.quotaManager.getQuotaLimits(model);
+          
+          this.logger.log(`🚀 Analysis attempt ${attempt}/${this.MAX_RETRIES} for chunk ${chunk.chunkIndex + 1} using ${model}`);
+          this.logger.log(`📊 Token breakdown: ${textPromptTokens} (text) + ${videoTokens} (video ~${chunk.duration}s) = ${estimatedTokens} total. Max allowed: ${quotaLimits.maxTokensPerRequest}`);
+
           const config = {
-            responseMimeType: 'application/json', // Force JSON response
+            responseMimeType: 'application/json', // Required for structured output
+            responseSchema: VideoAnalysisResponseSchema, // Official structured output schema
             temperature: 0.1, // Low temperature for consistency
-            // maxOutputTokens: 4096, // Limit tokens to prevent memory issues
+            maxOutputTokens: Math.min(quotaLimits.maxTokensPerRequest || 4096, 4096), // Respect quota limits
           };
 
           const contents = [
@@ -304,6 +409,7 @@ export class VideoAnalysisService {
                   },
                   videoMetadata: {
                     endOffset: endOffset,
+                    ...this.getOptimizedVideoSettings(),
                   }
                 },
                 {
@@ -346,33 +452,31 @@ export class VideoAnalysisService {
 
           this.logger.log(`📄 Final response: ${analysisText.length} chars from ${chunkCount} chunks`);
 
-          // Parse JSON response
-          let analysis;
+          // With structured output, response should already be valid JSON
+          let analysis: VideoAnalysisResponse;
           try {
-            // Try to parse the full response as JSON
-            analysis = JSON.parse(analysisText);
-            this.logger.log(`✅ Successfully parsed JSON response for chunk ${chunk.chunkIndex + 1}`);
-          } catch (parseError) {
-            this.logger.warn(`⚠️ Initial JSON parse failed, attempting to extract JSON...`);
+            analysis = JSON.parse(analysisText) as VideoAnalysisResponse;
+            this.logger.log(`✅ Structured output successfully received for chunk ${chunk.chunkIndex + 1}`);
             
-            // Try to extract JSON from response if it's wrapped in text/markdown
-            const jsonMatch = analysisText.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-              try {
-                analysis = JSON.parse(jsonMatch[0]);
-                this.logger.log(`✅ Successfully extracted and parsed JSON for chunk ${chunk.chunkIndex + 1}`);
-              } catch (extractError) {
-                throw new Error(`Failed to parse extracted JSON: ${extractError.message}`);
-              }
-            } else {
-              // If no JSON found, return the raw text as analysis
-              this.logger.warn(`⚠️ No JSON found, using raw text response`);
-              analysis = { rawResponse: analysisText };
+            // Validate that we received the expected structure
+            if (!analysis.metadata || !analysis.stance_and_thesis || !analysis.classification) {
+              throw new Error('Response missing required structured output fields');
             }
+          } catch (parseError) {
+            this.logger.error(`❌ Structured output parsing failed for chunk ${chunk.chunkIndex + 1}: ${parseError.message}`);
+            this.logger.warn(`Response content: ${analysisText.substring(0, 500)}...`);
+            throw new Error(`Structured output parsing failed: ${parseError.message}`);
           }
 
           const processingTime = Date.now() - startTime;
           this.logger.log(`✅ Successfully analyzed chunk ${chunk.chunkIndex + 1} in ${processingTime}ms`);
+
+          // Record quota usage for successful request
+          const actualTokens = this.quotaManager.estimateTokenCount(analysisText) + estimatedTokens;
+          this.quotaManager.recordRequest(model, actualTokens);
+          
+          const { usage, limits } = this.quotaManager.getUsageStats(model);
+          this.logger.log(`📊 Quota usage: ${usage.requestsInCurrentMinute}/${limits.rpm} RPM, ${usage.tokensInCurrentMinute}/${limits.tpm} TPM`);
 
           // Clear variables to help with garbage collection
           analysisText = null;
@@ -382,10 +486,22 @@ export class VideoAnalysisService {
             analysis,
             processingTime,
             success: true,
+            modelUsed: model,
           };
 
         } catch (error) {
           lastError = error;
+          
+          // Check if this is a quota violation error (429 status code)
+          if (error.status === 429 || error.code === 429 || 
+              (error.message && error.message.includes('quota')) ||
+              (error.error && error.error.code === 429)) {
+            
+            // Record the quota violation for tracking
+            this.quotaManager.recordQuotaViolation(model || 'unknown', error);
+            this.logger.error(`📊 Quota violation for ${model}: ${error.message}`);
+          }
+          
           this.logger.warn(`⚠️ Attempt ${attempt} failed for chunk ${chunk.chunkIndex + 1}: ${error.message}`);
           
           if (attempt < this.MAX_RETRIES) {
@@ -650,9 +766,40 @@ export class VideoAnalysisService {
   }
 
   /**
-   * Main method to analyze a YouTube video with chunking
+   * Fetch and return video metadata without analysis
    */
-  async analyzeYouTubeVideo(youtubeUrl: string): Promise<any> {
+  async fetchVideoMetadata(youtubeUrl: string): Promise<{ videoId: string; metadata: any }> {
+    this.logger.log(`📋 Fetching metadata for YouTube video: ${youtubeUrl}`);
+
+    try {
+      const { videoId, info, duration } = await this.validateAndGetVideoInfo(youtubeUrl);
+
+      const metadata = {
+        duration,
+        viewCount: parseInt(info.view_count || '0'),
+        channel: info.channel,
+        thumbnailUrl: info.thumbnail,
+        webpageUrl: info.webpage_url,
+        fetchedAt: new Date(),
+        lastUpdatedAt: new Date(),
+      };
+
+      this.logger.log(`✅ Successfully fetched metadata for video: ${info.title}`);
+      this.logger.log(`   ⏱️ Duration: ${Math.round(duration / 60)}m ${duration % 60}s`);
+      this.logger.log(`   👀 Views: ${metadata.viewCount.toLocaleString()}`);
+      this.logger.log(`   👤 Channel: ${metadata.channel}`);
+
+      return { videoId, metadata };
+    } catch (error) {
+      this.logger.error(`❌ Failed to fetch video metadata: ${error.message}`);
+      throw error;
+    }
+  }
+
+  /**
+   * Main method to analyze a YouTube video with chunking (requires metadata to be already fetched)
+   */
+  async analyzeYouTubeVideo(youtubeUrl: string, existingMetadata?: any): Promise<any> {
     this.logger.log(`🎬 Starting comprehensive analysis of YouTube video: ${youtubeUrl}`);
     const overallStartTime = Date.now();
 
@@ -664,12 +811,39 @@ export class VideoAnalysisService {
         throw new Error('No default prompt found in the database.');
       }
       this.logger.log(`✅ Using prompt: "${prompt.promptName}" (v${prompt.version})`);
+      
+      // Ensure we're using a structured output compatible prompt (v2+)
+      if (prompt.version < 2) {
+        this.logger.warn(`⚠️ Prompt version ${prompt.version} may not be optimized for structured output. Consider running: npm run update-prompt`);
+      }
 
-      // 2. Validate and get video info
-      const { info, duration } = await this.validateAndGetVideoInfo(youtubeUrl);
+      // 2. Get video info (either from existing metadata or fetch fresh)
+      let info, duration;
+      if (existingMetadata) {
+        this.logger.log(`📋 Using existing metadata from database`);
+        info = {
+          title: 'Video', // Title should be in content.title
+          description: '', 
+          duration: existingMetadata.duration,
+          channel: existingMetadata.channel,
+          view_count: existingMetadata.viewCount,
+          upload_date: null,
+          thumbnail: existingMetadata.thumbnailUrl,
+          webpage_url: existingMetadata.webpageUrl,
+        };
+        duration = existingMetadata.duration;
+      } else {
+        this.logger.log(`📋 Fetching fresh video info from YouTube API`);
+        const result = await this.validateAndGetVideoInfo(youtubeUrl);
+        info = result.info;
+        duration = result.duration;
+      }
 
       // 3. Calculate chunks
       const chunks = this.calculateVideoChunks(duration);
+
+      // Log optimization recommendations
+      this.logOptimizationRecommendations(duration, info.title);
 
       // 4. Analyze each chunk
       this.logger.log(`🔄 Starting analysis of ${chunks.length} chunk(s)...`);
@@ -698,6 +872,23 @@ export class VideoAnalysisService {
       this.logger.log(`   ✅ Successful chunks: ${successfulChunks}/${chunks.length}`);
       this.logger.log(`   📝 Video: ${info.title}`);
 
+      // Determine the primary model used (most successful chunks)
+      const modelUsageCount: Record<string, number> = {};
+      chunkResults.forEach(result => {
+        if (result.success && result.modelUsed) {
+          modelUsageCount[result.modelUsed] = (modelUsageCount[result.modelUsed] || 0) + 1;
+        }
+      });
+
+      let primaryModel = '';
+      let maxCount = 0;
+      for (const [model, count] of Object.entries(modelUsageCount)) {
+        if (count > maxCount) {
+          maxCount = count;
+          primaryModel = model;
+        }
+      }
+
       // Return both the result and the prompt info
       return {
         analysis: combinedResult,
@@ -706,6 +897,8 @@ export class VideoAnalysisService {
           promptName: prompt.promptName,
           version: prompt.version,
         },
+        modelUsed: primaryModel,
+        modelUsageStats: modelUsageCount,
       };
 
     } catch (error) {

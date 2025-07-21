@@ -20,6 +20,7 @@
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./apps/simargl/test/jest-e2e.json",
     "seed": "ts-node apps/api/src/scripts/seed.ts",
+    "update-prompt": "ts-node apps/api/src/scripts/create-structured-prompt.ts",
     "docker:dev": "docker-compose -f docker-compose.dev.yml up --build",
     "docker:dev:watch": "docker-compose -f docker-compose.dev.yml watch",
     "docker:dev:down": "docker-compose -f docker-compose.dev.yml down",

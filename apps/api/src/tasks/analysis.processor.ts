@@ -25,45 +25,70 @@ export class AnalysisProcessor extends WorkerHost {
   }
 
   async process(job: Job<any, any, string>): Promise<any> {  
-    console.log(`Analyzing content: ${job.data.contentId}`);  
+    this.logger.log(`🔍 Analyzing content: ${job.data.contentId}`);  
     const content = await this.contentModel.findById(job.data.contentId).exec();  
     
     if (!content) {
-      console.error(`Content with id ${job.data.contentId} not found.`);
+      this.logger.error(`❌ Content with id ${job.data.contentId} not found.`);
       return;
     }
     
     const channel = await this.channelModel.findById(content.channelId).exec();
     
     if (!channel) {
-      console.error(`Channel with id ${content.channelId} not found.`);
+      this.logger.error(`❌ Channel with id ${content.channelId} not found.`);
       return;
     }
 
     try {
-      // No need to fetch the prompt here anymore, the service does it.
       const youtubeUrl = `https://www.youtube.com/watch?v=${content.sourceContentId}`;
-      this.logger.log(`Starting video analysis for: ${youtubeUrl}`);
-      
-      const { analysis, prompt } = await this.videoAnalysisService.analyzeYouTubeVideo(youtubeUrl);
+      this.logger.log(`🚀 Starting video analysis for: ${youtubeUrl}`);
+
+      // Check if metadata exists
+      let existingMetadata = null;
+      if (content.metadata) {
+        this.logger.log(`📊 Using existing metadata from database`);
+        existingMetadata = content.metadata;
+      } else if (job.data.hasMetadata) {
+        // Refetch the content to get updated metadata
+        const updatedContent = await this.contentModel.findById(job.data.contentId).exec();
+        if (updatedContent?.metadata) {
+          this.logger.log(`📊 Found fresh metadata in database`);
+          existingMetadata = updatedContent.metadata;
+        }
+      }
+
+      if (!existingMetadata) {
+        this.logger.warn(`⚠️ No metadata found for content ${content._id}. Analysis may be less efficient.`);
+      }
+
+      // Pass existing metadata to analysis service
+      const { analysis, prompt, modelUsed, modelUsageStats } = await this.videoAnalysisService.analyzeYouTubeVideo(
+        youtubeUrl, 
+        existingMetadata
+      );
       
       await this.contentModel.updateOne({ _id: content._id }, {
         analysis: {
           promptVersion: prompt.version,
           promptName: prompt.promptName,
           promptId: prompt._id,
+          modelUsed: modelUsed,
           result: analysis,
         },
         status: 'ANALYZED',
       });
+
+      this.logger.log(`✅ Analysis completed using model: ${modelUsed}`);
+      if (modelUsageStats && Object.keys(modelUsageStats).length > 1) {
+        this.logger.log(`📊 Model usage breakdown:`, modelUsageStats);
+      }
       
       this.logger.log(`✅ Successfully analyzed video: ${content.title || 'Unknown'}`);
       await this.statsQueue.add('update-stats', { contentId: content._id });
     } catch (error) {
-      console.error(`Failed to analyze content ${content._id}:`, error);
-      content.status = 'FAILED';
-      await content.save();
-      throw error;
+      this.logger.error(`❌ Failed to analyze content ${content._id}: ${error.message}`);
+      await this.contentModel.updateOne({ _id: content._id }, { status: 'FAILED' });
     }
 
     return {};  

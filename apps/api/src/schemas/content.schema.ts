@@ -9,11 +9,43 @@ export class Analysis {
   @Prop()  
   promptName: string;
 
+  @Prop()
+  promptId: string;
+
+  @Prop()
+  modelUsed?: string; // Track which Gemini model was used for analysis
+
   @Prop({ type: Object })  
   result: Record<string, any>;  
 }
 
 export const AnalysisSchema = SchemaFactory.createForClass(Analysis);
+
+@Schema({ _id: false })
+export class VideoMetadata {
+  @Prop()
+  duration: number; // in seconds
+
+  @Prop()
+  viewCount: number;
+
+  @Prop()
+  channel: string;
+
+  @Prop()
+  thumbnailUrl: string;
+
+  @Prop()
+  webpageUrl: string;
+
+  @Prop()
+  fetchedAt: Date;
+
+  @Prop()
+  lastUpdatedAt: Date;
+}
+
+export const VideoMetadataSchema = SchemaFactory.createForClass(VideoMetadata);
 
 @Schema({ _id: false })
 export class Statistics {  
@@ -49,7 +81,7 @@ export class Content extends Document {
   @Prop()  
   publishedAt: Date;
 
-  @Prop({ required: true, enum: ['PENDING', 'PROCESSING', 'ANALYZED', 'FAILED'] })  
+  @Prop({ required: true, enum: ['PENDING', 'METADATA_FETCHED', 'PROCESSING', 'ANALYZED', 'FAILED'] })  
   status: string;
 
   @Prop({ type: Object })  
@@ -57,6 +89,9 @@ export class Content extends Document {
     transcript?: string;  
     text?: string;  
   };
+
+  @Prop({ type: VideoMetadataSchema })
+  metadata?: VideoMetadata;
 
   @Prop({ type: AnalysisSchema })  
   analysis?: Analysis;
