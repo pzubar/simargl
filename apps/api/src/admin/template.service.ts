@@ -10,7 +10,11 @@ export class TemplateService {
   private templatesCache: Map<string, any> = new Map();
   
   constructor() {
+    // Configure Handlebars runtime options to allow prototype access
+    Handlebars.logger.level = 0; // Disable warnings
+    
     this.registerHelpers();
+    this.registerPartials();
   }
   
   private registerHelpers() {
@@ -88,7 +92,10 @@ export class TemplateService {
     }
     
     const templateSource = fs.readFileSync(templatePath, 'utf-8');
-    return Handlebars.compile(templateSource);
+    return Handlebars.compile(templateSource, {
+      allowProtoPropertiesByDefault: true,
+      allowProtoMethodsByDefault: true
+    });
   }
   
   private getTemplate(templateName: string): any {
@@ -134,5 +141,22 @@ export class TemplateService {
   // Clear template cache (useful for development)
   clearCache(): void {
     this.templatesCache.clear();
+  }
+
+  private registerPartials() {
+    const partialsDir = path.join(__dirname, '..', '..', '..', 'apps', 'api', 'src', 'views', 'partials');
+    
+    if (fs.existsSync(partialsDir)) {
+      const partialFiles = fs.readdirSync(partialsDir).filter(file => file.endsWith('.hbs'));
+      
+      partialFiles.forEach(file => {
+        const partialName = file.replace('.hbs', '');
+        const partialPath = path.join(partialsDir, file);
+        const partialSource = fs.readFileSync(partialPath, 'utf-8');
+        
+        Handlebars.registerPartial(partialName, partialSource);
+        console.log(`✅ Registered partial: ${partialName}`);
+      });
+    }
   }
 } 

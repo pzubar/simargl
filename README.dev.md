@@ -1,114 +1,230 @@
-# Development Environment Setup
+# Simargl Development Setup
 
-This project now supports hot reload development using Docker Compose with volume mounts and NestJS watch mode.
+This document covers the development setup for the Simargl project.
 
-## 🚀 Quick Start
+## Quick Start
 
-### Development Mode (Hot Reload)
+### 1. Start with Docker Compose (Recommended)
+
 ```bash
-# Start development environment with hot reload
+# Start development environment
 npm run docker:dev
 
-# Or manually
-docker-compose -f docker-compose.dev.yml up --build
+# Watch logs
+npm run docker:dev:logs
+
+# Stop environment
+npm run docker:dev:down
 ```
 
-### With Docker Compose Watch (Recommended)
-If you have Docker Compose v2.20+ with watch support:
+### 2. Individual Services (Optional)
+
+If you prefer to run services individually:
+
 ```bash
-# Start with file watching
-npm run docker:dev:watch
+# Start MongoDB and Redis
+docker-compose -f docker-compose.dev.yml up mongodb redis
 
-# Or manually
-docker-compose -f docker-compose.dev.yml watch
+# Install dependencies
+npm install
+
+# Start API in development mode
+npm run start:dev
+
+# Seed database (optional)
+npm run seed:dev
 ```
 
-## 📁 Project Structure
+## Available Services
 
-- `docker-compose.yml` - Production configuration
-- `docker-compose.dev.yml` - Development configuration with hot reload
-- `Dockerfile` - Production Dockerfile
-- `Dockerfile.dev` - Development Dockerfile with watch mode
-
-## 🛠️ Available Scripts
-
-### Development
-- `npm run docker:dev` - Start development environment
-- `npm run docker:dev:watch` - Start with file watching (Docker Compose v2.20+)
-- `npm run docker:dev:down` - Stop development environment
-- `npm run docker:dev:logs` - View API logs
-
-### Production
-- `npm run docker:prod` - Start production environment
-- `npm run docker:prod:down` - Stop production environment
-
-## 🔄 Hot Reload Features
-
-### What Gets Reloaded Automatically:
-- TypeScript files in `apps/` directory
-- TypeScript files in `libs/` directory
-- Configuration files (nest-cli.json, tsconfig.json)
-
-### What Triggers Rebuild:
-- Changes to `package.json` (new dependencies)
-
-### Volume Mounts:
-- Source code is mounted for real-time sync
-- `node_modules` is excluded to avoid conflicts
-- Compiled output is stored in a Docker volume
-
-## 🌐 Access Points
-
-Once running:
-- **Main Application**: http://localhost:3333
-- **AdminJS Panel**: http://localhost:3333/admin
+- **API**: http://localhost:3333
+- **Admin Panel**: http://localhost:3333/admin
+- **Queue Dashboard**: http://localhost:3333/queues
 - **MongoDB**: localhost:27017
 - **Redis**: localhost:6379
 
-## 📋 Environment Variables
+## Development Commands
 
-Create a `.env` file with:
-```env
-# Application
-PORT=3333
-NODE_ENV=development
+```bash
+# Build and start development environment
+npm run docker:dev
 
+# Watch development logs
+npm run docker:dev:logs
+
+# Stop development environment
+npm run docker:dev:down
+
+# Rebuild CSS styles (run after template changes)
+npm run build:css:copy
+
+# Seed database with sample data
+npm run seed:dev
+
+# Update structured prompts
+npm run update-prompt
+```
+
+## Admin Interface
+
+The admin interface is available at http://localhost:3333/admin and provides:
+
+- **Dashboard**: Overview of channels, content, and system stats
+- **Channel Management**: Create, edit, and manage content channels
+- **Content Management**: View and manage processed content
+- **Recurring Jobs**: Start/stop automated channel polling
+- **Manual Polling**: Trigger immediate channel processing
+
+### Template Development
+
+The admin interface uses Handlebars templates with Tailwind CSS styling:
+
+- **Templates**: `apps/api/src/views/admin/*.hbs`
+- **Layout**: `apps/api/src/views/layouts/main.hbs`
+- **CSS**: `apps/api/src/public/output.css` (auto-generated)
+
+**Important**: After making changes to templates, rebuild the CSS:
+
+```bash
+npm run build:css:copy
+```
+
+This ensures all Tailwind classes used in new templates are included in the compiled CSS.
+
+## Database Seeding
+
+```bash
+# Seed development database
+npm run seed:dev
+
+# This creates:
+# - Sample YouTube channels
+# - Sample content items
+# - Default analysis prompts
+```
+
+## Queue Management
+
+The application uses BullMQ for background job processing:
+
+- **Channel Polling**: Automated every 24 hours (configurable)
+- **Content Analysis**: Video/text analysis jobs
+- **Queue Dashboard**: http://localhost:3333/queues
+
+## Quota Management
+
+The system includes built-in quota management for AI model usage:
+
+- **Daily Limits**: Configurable per model
+- **Rate Limiting**: Requests per hour/day
+- **Cost Tracking**: Token usage monitoring
+- **Status Endpoint**: `/api/quota/status`
+
+## Environment Variables
+
+Key environment variables for development:
+
+```bash
 # Database
-MONGO_URI=mongodb://mongodb:27017/simargl
+MONGODB_URI=mongodb://mongodb:27017/simargl
 
 # Redis
-REDIS_HOST=redis
-REDIS_PORT=6379
+REDIS_URL=redis://redis:6379
 
-# APIs
-YOUTUBE_API_KEY=your_youtube_api_key_here
-GOOGLE_AI_API_KEY=your_google_ai_api_key_here
+# Google AI
+GOOGLE_API_KEY=your_google_ai_api_key
+
+# YouTube API
+YOUTUBE_API_KEY=your_youtube_api_key
+
+# Application
+NODE_ENV=development
+PORT=3333
 ```
 
-## 🐛 Troubleshooting
+## Troubleshooting
 
-### Hot Reload Not Working?
-1. Ensure Docker Compose version supports watch (v2.20+)
-2. Check volume mounts are correctly configured
-3. Verify NestJS is running in watch mode inside container
+### CSS Styles Not Loading
 
-### Container Build Issues?
+If admin interface styles appear broken:
+
 ```bash
-# Clean rebuild
+# Rebuild CSS with all template classes
+npm run build:css:copy
+```
+
+### Database Connection Issues
+
+```bash
+# Restart MongoDB container
+docker-compose -f docker-compose.dev.yml restart mongodb
+
+# Check container status
+docker-compose -f docker-compose.dev.yml ps
+```
+
+### Queue Jobs Not Processing
+
+```bash
+# Restart Redis container
+docker-compose -f docker-compose.dev.yml restart redis
+
+# Check queue dashboard
+open http://localhost:3333/queues
+```
+
+### Port Already in Use
+
+```bash
+# Stop all containers
 npm run docker:dev:down
-docker system prune -f
-npm run docker:dev
+
+# Check what's using port 3333
+lsof -i :3333
+
+# Kill process if needed
+kill -9 <PID>
 ```
 
-### View Container Logs:
+## Architecture
+
+- **Framework**: NestJS with TypeScript
+- **Database**: MongoDB with Mongoose ODM
+- **Queue**: BullMQ with Redis
+- **Templates**: Handlebars with Tailwind CSS
+- **AI Integration**: Google Generative AI
+- **API Integration**: YouTube Data API v3
+
+## API Documentation
+
+### Admin Endpoints
+
+- `GET /admin` - Dashboard
+- `GET /admin/channels` - Channel list
+- `POST /admin/channels` - Create channel
+- `GET/PUT/DELETE /admin/channels/:id` - Channel CRUD
+
+### Public API Endpoints
+
+- `GET /api` - API status
+- `GET/POST /channels` - Channel management
+- `POST /api/test-video-analysis` - Trigger analysis
+- `GET /api/quota/status` - Quota information
+
+## Contributing
+
+1. Make changes to templates or code
+2. Rebuild CSS if templates changed: `npm run build:css:copy`
+3. Test locally with `npm run docker:dev`
+4. Check admin interface works correctly
+5. Submit pull request
+
+## Production Deployment
+
 ```bash
-npm run docker:dev:logs
-```
+# Build and start production environment
+npm run docker:prod
 
-## 💡 Development Tips
-
-1. **Code Changes**: Automatically reload when you save files
-2. **Dependency Changes**: Restart containers when adding new packages
-3. **Configuration Changes**: May require container restart
-4. **Database Changes**: Schema changes persist in MongoDB volume
-5. **Performance**: Volume mounts may be slower on some systems (especially macOS) 
+# Stop production environment
+npm run docker:prod:down
+``` 

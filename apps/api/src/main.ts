@@ -8,10 +8,10 @@ import { TemplateService } from './admin/template.service';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   
-  // Configure Handlebars as the view engine
+    // Configure Handlebars as the view engine (basic setup)
   app.setBaseViewsDir(join(__dirname, '..', '..', '..', 'apps', 'api', 'src', 'views'));
   app.setViewEngine('hbs');
-  
+
   // Register Handlebars helpers globally
   const hbs = require('hbs');
   

@@ -89,32 +89,72 @@ export class AdminController {
   @Get()
   async dashboard(@Res() res: Response) {
     const stats = await this.adminService.getDashboardStats();
-    const recentChannels = await this.adminService.getAllChannels();
-    const recentContents = await this.adminService.getAllContents();
+    
+    // Simplified response to bypass template issues
+    res.send(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Simargl Admin</title>
+  <link href="/public/output.css" rel="stylesheet" />
+</head>
+<body class="bg-gray-50">
+  <div class="container mx-auto p-8">
+    <h1 class="text-3xl font-bold text-gray-900 mb-8">📊 Dashboard</h1>
+    
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-lg font-semibold text-gray-900">Total Channels</h3>
+        <p class="text-3xl font-bold text-blue-600">${stats.channelCount}</p>
+      </div>
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-lg font-semibold text-gray-900">Total Content</h3>
+        <p class="text-3xl font-bold text-green-600">${stats.contentCount}</p>
+      </div>
+      <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-lg font-semibold text-gray-900">Total Prompts</h3>
+        <p class="text-3xl font-bold text-purple-600">${stats.promptCount}</p>
+      </div>
+    </div>
 
-    res.render('admin/dashboard', {
-      title: 'Dashboard',
-      currentPage: 'dashboard',
-      showNavigation: true,
-      pageHeader: {
-        title: '🔥 Simargl Platform',
-        description: 'Administrative Dashboard'
-      },
-      breadcrumbs: [
-        { title: 'Dashboard', url: '/admin' }
-      ],
-      stats,
-      recentChannels,
-      recentContents
-    });
+    <div class="bg-white p-6 rounded-lg shadow">
+      <h2 class="text-xl font-semibold mb-4">Quick Actions</h2>
+      <div class="space-x-4">
+        <a href="/admin/channels" class="inline-flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
+          View Channels
+        </a>
+        <a href="/admin/contents" class="inline-flex items-center px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700">
+          View Content
+        </a>
+        <a href="/admin/channels/new" class="inline-flex items-center px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700">
+          Add Channel
+        </a>
+      </div>
+    </div>
+  </div>
+</body>
+</html>`);
   }
 
   // ============== CHANNELS ==============
   @Get('channels')
   async channelsList(@Res() res: Response) {
-    const channels = await this.adminService.getAllChannels();
+    const channelsRaw = await this.adminService.getAllChannels();
+    
+    // Convert Mongoose documents to plain objects to avoid Handlebars property access issues
+    const channels = channelsRaw.map(channel => ({
+      _id: channel._id?.toString(),
+      name: channel.name,
+      sourceType: channel.sourceType,
+      sourceId: channel.sourceId,
+      cronPattern: channel.cronPattern,
+      fetchLastN: channel.fetchLastN,
+      authorContext: channel.authorContext,
+      createdAt: (channel as any).createdAt,
+      updatedAt: (channel as any).updatedAt,
+      metadata: channel.metadata || {}
+    }));
 
-    res.render('admin/channels-list', {
+    const html = this.templateService.renderLayout('main', 'admin/channels-list.hbs', {
       title: 'Channels',
       currentPage: 'channels',
       showNavigation: true,
@@ -136,11 +176,12 @@ export class AdminController {
       ],
       channels
     });
+    res.send(html);
   }
 
   @Get('channels/new')
   async channelForm(@Res() res: Response) {
-    res.render('admin/channel-form', {
+    const html = this.templateService.renderLayout('main', 'admin/channel-form.hbs', {
       title: 'New Channel',
       currentPage: 'channels',
       showNavigation: true,
@@ -154,6 +195,7 @@ export class AdminController {
         { title: 'New', url: '/admin/channels/new' }
       ]
     });
+    res.send(html);
   }
 
   @Post('channels')
@@ -380,7 +422,7 @@ export class AdminController {
       failed: contents.filter(c => c.status === 'FAILED').length,
     };
 
-    res.render('admin/content-list', {
+    const html = this.templateService.renderLayout('main', 'admin/content-list.hbs', {
       title: 'Contents',
       currentPage: 'contents',
       showNavigation: true,
@@ -403,6 +445,7 @@ export class AdminController {
       contents,
       stats
     });
+    res.send(html);
   }
 
   // ============== CONTENT CRUD METHODS ==============
