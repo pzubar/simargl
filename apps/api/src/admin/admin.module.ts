@@ -3,6 +3,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { BullModule } from '@nestjs/bullmq';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { TemplateService } from './template.service';
 import { Channel, ChannelSchema } from '../schemas/channel.schema';
 import { Content, ContentSchema } from '../schemas/content.schema';
 import { Prompt, PromptSchema } from '../schemas/prompt.schema';
@@ -17,7 +18,7 @@ import { Prompt, PromptSchema } from '../schemas/prompt.schema';
     BullModule.registerQueue({ name: 'channel-poll' }),
   ],
   controllers: [AdminController],
-  providers: [AdminService],
+  providers: [AdminService, TemplateService],
   exports: [AdminService],
 })
 export class AdminModule {} 

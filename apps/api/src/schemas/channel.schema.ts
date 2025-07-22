@@ -15,7 +15,7 @@ export class Channel extends Document {
   @Prop({ default: 10 })
   fetchLastN: number;
 
-  @Prop({ default: '0 */6 * * *' })
+  @Prop({ default: '0 0 * * *' })
   cronPattern: string;
 
   @Prop()

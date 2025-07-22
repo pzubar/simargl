@@ -1,10 +1,14 @@
 import { Controller, Get, Post, Put, Delete, Param, Body, Res, Query, BadRequestException } from '@nestjs/common';
 import { Response } from 'express';
 import { AdminService, CreateChannelDto, CreateContentDto, CreatePromptDto } from './admin.service';
+import { TemplateService } from './template.service';
 
 @Controller('admin')
 export class AdminController {
-  constructor(private readonly adminService: AdminService) {}
+  constructor(
+    private readonly adminService: AdminService,
+    private readonly templateService: TemplateService,
+  ) {}
 
   // ============== SHARED STYLES ==============
   private getSharedStyles() {
@@ -21,6 +25,13 @@ export class AdminController {
         .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
         .stat { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: white; padding: 25px; border-radius: 12px; text-align: center; box-shadow: 0 4px 14px rgba(79, 70, 229, 0.3); }
         .stat h3 { font-size: 2em; margin-bottom: 8px; }
+        .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 30px; }
+        .stat-card { background: white; padding: 20px; border-radius: 8px; text-align: center; border: 1px solid #e5e7eb; }
+        .stat-number { margin: 0 0 5px 0; font-size: 32px; color: #3b82f6; font-weight: bold; }
+        .stat-label { margin: 0; color: #6b7280; font-size: 14px; }
+        .dashboard-section { background: white; padding: 20px; border-radius: 8px; border: 1px solid #e5e7eb; margin-bottom: 20px; }
+        .dashboard-section h3 { margin-top: 0; color: #1f2937; }
+        .dashboard-section p { color: #6b7280; margin-bottom: 0; }
         .table { width: 100%; border-collapse: collapse; margin-top: 20px; }
         .table th, .table td { padding: 12px; border-bottom: 1px solid #e2e8f0; text-align: left; }
         .table th { background: #f8fafc; font-weight: 600; color: #374151; border-top: 1px solid #e2e8f0; }
@@ -81,80 +92,21 @@ export class AdminController {
     const recentChannels = await this.adminService.getAllChannels();
     const recentContents = await this.adminService.getAllContents();
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Simargl Admin Dashboard</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        ${this.getSharedStyles()}
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>🔥 Simargl Platform</h1>
-            <p>Administrative Dashboard</p>
-          </div>
-          
-          ${this.getNavigation('dashboard')}
-          
-          <div class="stats">
-            <div class="stat">
-              <h3>${stats.channelCount}</h3>
-              <p>Total Channels</p>
-            </div>
-            <div class="stat">
-              <h3>${stats.contentCount}</h3>
-              <p>Total Contents</p>
-            </div>
-            <div class="stat">
-              <h3>${stats.promptCount}</h3>
-              <p>Total Prompts</p>
-            </div>
-          </div>
-          
-          <div class="card">
-            <h2>📺 Recent Channels</h2>
-            ${recentChannels.length > 0 ? `
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th>Source ID</th>
-                    <th>Created</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${recentChannels.slice(0, 5).map(channel => `
-                    <tr>
-                      <td>${channel.name}</td>
-                      <td><span class="badge">${channel.sourceType}</span></td>
-                      <td>${channel.sourceId}</td>
-                      <td class="actions">
-                        <a href="/admin/channels/${channel._id}" class="btn btn-primary">View</a>
-                      </td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-              <p><a href="/admin/channels" class="btn btn-secondary">View All Channels</a></p>
-            ` : `
-              <div class="empty-state">
-                <h3>No channels yet</h3>
-                <p>Create your first channel to get started</p>
-                <a href="/admin/channels/new" class="btn btn-primary">Create Channel</a>
-              </div>
-            `}
-          </div>
-        </div>
-      </body>
-      </html>
-    `;
-    
-    res.send(html);
+    res.render('admin/dashboard', {
+      title: 'Dashboard',
+      currentPage: 'dashboard',
+      showNavigation: true,
+      pageHeader: {
+        title: '🔥 Simargl Platform',
+        description: 'Administrative Dashboard'
+      },
+      breadcrumbs: [
+        { title: 'Dashboard', url: '/admin' }
+      ],
+      stats,
+      recentChannels,
+      recentContents
+    });
   }
 
   // ============== CHANNELS ==============
@@ -162,201 +114,46 @@ export class AdminController {
   async channelsList(@Res() res: Response) {
     const channels = await this.adminService.getAllChannels();
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Channels - Simargl Admin</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        ${this.getSharedStyles()}
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>📺 Channel Management</h1>
-            <p>Manage your content channels</p>
-          </div>
-          
-          ${this.getNavigation('channels')}
-          
-          <div class="breadcrumb">
-            <a href="/admin">Dashboard</a> / Channels
-          </div>
-          
-          <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-              <h2>All Channels (${channels.length})</h2>
-              <a href="/admin/channels/new" class="btn btn-success">+ Add New Channel</a>
-            </div>
-            
-            ${channels.length > 0 ? `
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th>Source ID</th>
-                    <th>Fetch Last N</th>
-                    <th>Created</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${channels.map(channel => `
-                    <tr>
-                      <td><strong>${channel.name}</strong></td>
-                      <td><span style="background: #667eea; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">${channel.sourceType}</span></td>
-                      <td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 3px;">${channel.sourceId}</code></td>
-                      <td>${channel.fetchLastN || 'N/A'}</td>
-                      <td class="actions">
-                        <a href="/admin/channels/${channel._id}" class="btn btn-primary">View</a>
-                        <a href="/admin/channels/${channel._id}/edit" class="btn btn-secondary">Edit</a>
-                        <button onclick="deleteChannel('${channel._id}', '${channel.name}')" class="btn btn-danger">Delete</button>
-                      </td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            ` : `
-              <div class="empty-state">
-                <h3>No channels found</h3>
-                <p>Create your first channel to start monitoring content</p>
-                <a href="/admin/channels/new" class="btn btn-primary">Create First Channel</a>
-              </div>
-            `}
-          </div>
-        </div>
-        
-        <script>
-          async function deleteChannel(id, name) {
-            if (confirm('Are you sure you want to delete "' + name + '"? This action cannot be undone.')) {
-              try {
-                const response = await fetch('/admin/channels/' + id, { method: 'DELETE' });
-                if (response.ok) {
-                  alert('Channel deleted successfully');
-                  location.reload();
-                } else {
-                  alert('Failed to delete channel');
-                }
-              } catch (error) {
-                alert('Error: ' + error.message);
-              }
-            }
+    res.render('admin/channels-list', {
+      title: 'Channels',
+      currentPage: 'channels',
+      showNavigation: true,
+      pageHeader: {
+        title: '📺 Channels',
+        description: 'Manage content sources and scheduling',
+        actions: [
+          {
+            text: 'Add Channel',
+            url: '/admin/channels/new',
+            class: 'inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500',
+            icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>`
           }
-        </script>
-      </body>
-      </html>
-    `;
-    
-    res.send(html);
+        ]
+      },
+      breadcrumbs: [
+        { title: 'Dashboard', url: '/admin' },
+        { title: 'Channels', url: '/admin/channels' }
+      ],
+      channels
+    });
   }
 
   @Get('channels/new')
   async channelForm(@Res() res: Response) {
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>New Channel - Simargl Admin</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        ${this.getSharedStyles()}
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>📺 Create New Channel</h1>
-            <p>Add a new content source</p>
-          </div>
-          
-          ${this.getNavigation('channels')}
-          
-          <div class="breadcrumb">
-            <a href="/admin">Dashboard</a> / <a href="/admin/channels">Channels</a> / New
-          </div>
-          
-          <div class="card">
-            <form id="channelForm">
-              <div class="form-group">
-                <label for="name">Channel Name *</label>
-                <input type="text" id="name" name="name" class="form-control" required placeholder="e.g., My YouTube Channel">
-              </div>
-              
-              <div class="form-group">
-                <label for="sourceType">Source Type *</label>
-                <select id="sourceType" name="sourceType" class="form-control" required>
-                  <option value="">Select source type...</option>
-                  <option value="YOUTUBE">YouTube</option>
-                  <option value="TELEGRAM">Telegram</option>
-                  <option value="TIKTOK">TikTok</option>
-                </select>
-              </div>
-              
-              <div class="form-group">
-                <label for="sourceId">Source ID *</label>
-                <input type="text" id="sourceId" name="sourceId" class="form-control" required placeholder="e.g., UCXuqSBlHAE6Xw-yeJA0Tunw">
-                <small style="color: #6b7280; font-size: 12px;">For YouTube: Channel ID (starts with UC), for Telegram: @username</small>
-              </div>
-              
-              <div class="form-group">
-                <label for="fetchLastN">Fetch Last N Items</label>
-                <input type="number" id="fetchLastN" name="fetchLastN" class="form-control" min="1" max="100" value="5" placeholder="5">
-              </div>
-              
-              <div class="form-group">
-                <label for="cronPattern">Cron Pattern</label>
-                <input type="text" id="cronPattern" name="cronPattern" class="form-control" value="0 */6 * * *" placeholder="0 */6 * * *">
-                <small style="color: #6b7280; font-size: 12px;">Default: Every 6 hours</small>
-              </div>
-              
-              <div class="form-group">
-                <label for="authorContext">Author Context</label>
-                <textarea id="authorContext" name="authorContext" class="form-control textarea" placeholder="Brief description of the channel author/content style..."></textarea>
-              </div>
-              
-              <div style="display: flex; gap: 10px; margin-top: 30px;">
-                <button type="submit" class="btn btn-success">Create Channel</button>
-                <a href="/admin/channels" class="btn btn-secondary">Cancel</a>
-              </div>
-            </form>
-          </div>
-        </div>
-        
-        <script>
-          document.getElementById('channelForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const formData = new FormData(e.target);
-            const data = Object.fromEntries(formData.entries());
-            
-            // Convert number fields
-            if (data.fetchLastN) data.fetchLastN = parseInt(data.fetchLastN);
-            
-            try {
-              const response = await fetch('/admin/channels', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-              });
-              
-              if (response.ok) {
-                alert('Channel created successfully!');
-                window.location.href = '/admin/channels';
-              } else {
-                const error = await response.text();
-                alert('Error creating channel: ' + error);
-              }
-            } catch (error) {
-              alert('Error: ' + error.message);
-            }
-          });
-        </script>
-      </body>
-      </html>
-    `;
-    
-    res.send(html);
+    res.render('admin/channel-form', {
+      title: 'New Channel',
+      currentPage: 'channels',
+      showNavigation: true,
+      pageHeader: {
+        title: '📺 Create New Channel',
+        description: 'Add a new content source'
+      },
+      breadcrumbs: [
+        { title: 'Dashboard', url: '/admin' },
+        { title: 'Channels', url: '/admin/channels' },
+        { title: 'New', url: '/admin/channels/new' }
+      ]
+    });
   }
 
   @Post('channels')
@@ -371,184 +168,76 @@ export class AdminController {
 
   @Get('channels/:id')
   async channelDetail(@Param('id') id: string, @Res() res: Response) {
-    const channel = await this.adminService.getChannelById(id);
-    if (!channel) {
-      return res.status(404).send('Channel not found');
-    }
+    try {
+      const channel = await this.adminService.getChannelById(id);
+      if (!channel) {
+        return res.status(404).send('Channel not found');
+      }
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${channel.name} - Simargl Admin</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        ${this.getSharedStyles()}
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>📺 ${channel.name}</h1>
-            <p>Channel Details</p>
-          </div>
-          
-          ${this.getNavigation('channels')}
-          
-          <div class="breadcrumb">
-            <a href="/admin">Dashboard</a> / <a href="/admin/channels">Channels</a> / ${channel.name}
-          </div>
-          
-          <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-              <h2>Channel Information</h2>
-              <div class="actions">
-                <a href="/admin/channels/${channel._id}/edit" class="btn btn-primary">Edit Channel</a>
-                <button onclick="deleteChannel('${channel._id}', '${channel.name}')" class="btn btn-danger">Delete Channel</button>
-              </div>
-            </div>
-            
-            <table class="table">
-              <tr><th>Name</th><td>${channel.name}</td></tr>
-              <tr><th>Source Type</th><td><span style="background: #667eea; color: white; padding: 4px 8px; border-radius: 4px;">${channel.sourceType}</span></td></tr>
-              <tr><th>Source ID</th><td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 3px;">${channel.sourceId}</code></td></tr>
-              <tr><th>Fetch Last N</th><td>${channel.fetchLastN || 'Not set'}</td></tr>
-              <tr><th>Cron Pattern</th><td>${channel.cronPattern || 'Not set'}</td></tr>
-              <tr><th>Author Context</th><td>${channel.authorContext || 'Not provided'}</td></tr>
-            </table>
-          </div>
-        </div>
-        
-        <script>
-          async function deleteChannel(id, name) {
-            if (confirm('Are you sure you want to delete "' + name + '"? This action cannot be undone.')) {
-              try {
-                const response = await fetch('/admin/channels/' + id, { method: 'DELETE' });
-                if (response.ok) {
-                  alert('Channel deleted successfully');
-                  window.location.href = '/admin/channels';
-                } else {
-                  alert('Failed to delete channel');
-                }
-              } catch (error) {
-                alert('Error: ' + error.message);
-              }
+      // Get channel content (limit to recent 10 for the detail view)
+      const allContents = await this.adminService.getAllContents();
+      const contents = allContents.filter(content => 
+        content.channelId && content.channelId._id && content.channelId._id.toString() === id
+      ).slice(0, 10);
+
+      res.render('admin/channel-detail', {
+        title: channel.name,
+        currentPage: 'channels',
+        showNavigation: true,
+        pageHeader: {
+          title: `📺 ${channel.name}`,
+          description: `${channel.sourceType} channel details and content`,
+          actions: [
+            {
+              text: 'Edit Channel',
+              url: `/admin/channels/${id}/edit`,
+              class: 'inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500',
+              icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>`
             }
-          }
-        </script>
-      </body>
-      </html>
-    `;
-    
-    res.send(html);
+          ]
+        },
+        breadcrumbs: [
+          { title: 'Dashboard', url: '/admin' },
+          { title: 'Channels', url: '/admin/channels' },
+          { title: channel.name, url: `/admin/channels/${id}` }
+        ],
+        channel,
+        contents
+      });
+    } catch (error) {
+      console.error('Error loading channel detail:', error);
+      res.status(500).send('Error loading channel');
+    }
   }
 
   @Get('channels/:id/edit')
   async editChannelForm(@Param('id') id: string, @Res() res: Response) {
-    const channel = await this.adminService.getChannelById(id);
-    if (!channel) {
-      return res.status(404).send('Channel not found');
-    }
+    try {
+      const channel = await this.adminService.getChannelById(id);
+      if (!channel) {
+        return res.status(404).send('Channel not found');
+      }
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Edit ${channel.name} - Simargl Admin</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        ${this.getSharedStyles()}
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>📺 Edit Channel</h1>
-            <p>Update channel settings</p>
-          </div>
-          
-          ${this.getNavigation('channels')}
-          
-          <div class="breadcrumb">
-            <a href="/admin">Dashboard</a> / <a href="/admin/channels">Channels</a> / <a href="/admin/channels/${channel._id}">${channel.name}</a> / Edit
-          </div>
-          
-          <div class="card">
-            <form id="channelForm">
-              <div class="form-group">
-                <label for="name">Channel Name *</label>
-                <input type="text" id="name" name="name" class="form-control" required value="${channel.name}">
-              </div>
-              
-              <div class="form-group">
-                <label for="sourceType">Source Type *</label>
-                <select id="sourceType" name="sourceType" class="form-control" required>
-                  <option value="YOUTUBE" ${channel.sourceType === 'YOUTUBE' ? 'selected' : ''}>YouTube</option>
-                  <option value="TELEGRAM" ${channel.sourceType === 'TELEGRAM' ? 'selected' : ''}>Telegram</option>
-                  <option value="TIKTOK" ${channel.sourceType === 'TIKTOK' ? 'selected' : ''}>TikTok</option>
-                </select>
-              </div>
-              
-              <div class="form-group">
-                <label for="sourceId">Source ID *</label>
-                <input type="text" id="sourceId" name="sourceId" class="form-control" required value="${channel.sourceId}">
-              </div>
-              
-              <div class="form-group">
-                <label for="fetchLastN">Fetch Last N Items</label>
-                <input type="number" id="fetchLastN" name="fetchLastN" class="form-control" min="1" max="100" value="${channel.fetchLastN || ''}">
-              </div>
-              
-              <div class="form-group">
-                <label for="cronPattern">Cron Pattern</label>
-                <input type="text" id="cronPattern" name="cronPattern" class="form-control" value="${channel.cronPattern || ''}">
-              </div>
-              
-              <div class="form-group">
-                <label for="authorContext">Author Context</label>
-                <textarea id="authorContext" name="authorContext" class="form-control textarea">${channel.authorContext || ''}</textarea>
-              </div>
-              
-              <div style="display: flex; gap: 10px; margin-top: 30px;">
-                <button type="submit" class="btn btn-success">Update Channel</button>
-                <a href="/admin/channels/${channel._id}" class="btn btn-secondary">Cancel</a>
-              </div>
-            </form>
-          </div>
-        </div>
-        
-        <script>
-          document.getElementById('channelForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const formData = new FormData(e.target);
-            const data = Object.fromEntries(formData.entries());
-            
-            // Convert number fields
-            if (data.fetchLastN) data.fetchLastN = parseInt(data.fetchLastN);
-            
-            try {
-              const response = await fetch('/admin/channels/${channel._id}', {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(data)
-              });
-              
-              if (response.ok) {
-                alert('Channel updated successfully!');
-                window.location.href = '/admin/channels/${channel._id}';
-              } else {
-                const error = await response.text();
-                alert('Error updating channel: ' + error);
-              }
-            } catch (error) {
-              alert('Error: ' + error.message);
-            }
-          });
-        </script>
-      </body>
-      </html>
-    `;
-    
-    res.send(html);
+      res.render('admin/channel-form', {
+        title: `Edit ${channel.name}`,
+        currentPage: 'channels',
+        showNavigation: true,
+        pageHeader: {
+          title: `📺 Edit Channel`,
+          description: `Modify ${channel.name} settings`
+        },
+        breadcrumbs: [
+          { title: 'Dashboard', url: '/admin' },
+          { title: 'Channels', url: '/admin/channels' },
+          { title: channel.name, url: `/admin/channels/${id}` },
+          { title: 'Edit', url: `/admin/channels/${id}/edit` }
+        ],
+        channel
+      });
+    } catch (error) {
+      console.error('Error loading channel for edit:', error);
+      res.status(500).send('Error loading channel');
+    }
   }
 
   @Put('channels/:id')
@@ -565,106 +254,155 @@ export class AdminController {
   async deleteChannel(@Param('id') id: string, @Res() res: Response) {
     try {
       await this.adminService.deleteChannel(id);
-      res.json({ success: true });
+      res.redirect('/admin/channels');
     } catch (error) {
-      res.status(400).send('Error deleting channel: ' + error.message);
+      console.error('Error deleting channel:', error);
+      res.status(500).send('Error deleting channel');
     }
   }
 
-  // ============== CONTENTS (Similar structure for Contents) ==============
+  // ============== RECURRING JOB MANAGEMENT ==============
+  @Post('jobs/start-all-polling')
+  async startAllChannelPolling(@Res() res: Response) {
+    try {
+      const result = await this.adminService.startAllChannelPolling();
+      res.json({
+        success: true,
+        message: `Started recurring polling for ${result.scheduledChannels} YouTube channels`,
+        ...result
+      });
+    } catch (error) {
+      console.error('Error starting all channel polling:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error starting channel polling',
+        error: error.message
+      });
+    }
+  }
+
+  @Post('jobs/stop-all-polling')
+  async stopAllChannelPolling(@Res() res: Response) {
+    try {
+      const result = await this.adminService.stopAllChannelPolling();
+      res.json({
+        success: true,
+        message: `Stopped recurring polling for ${result.stoppedChannels} YouTube channels`,
+        ...result
+      });
+    } catch (error) {
+      console.error('Error stopping all channel polling:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error stopping channel polling',
+        error: error.message
+      });
+    }
+  }
+
+  @Post('channels/:id/update-cron')
+  async updateChannelCronPattern(
+    @Param('id') id: string,
+    @Body() body: { cronPattern: string },
+    @Res() res: Response
+  ) {
+    try {
+      await this.adminService.updateChannelCronPattern(id, body.cronPattern);
+      res.json({
+        success: true,
+        message: `Updated cron pattern for channel ${id} to: ${body.cronPattern}`
+      });
+    } catch (error) {
+      console.error('Error updating channel cron pattern:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error updating cron pattern',
+        error: error.message
+      });
+    }
+  }
+
+  @Post('channels/:id/poll-now')
+  async pollChannelNow(@Param('id') id: string, @Res() res: Response) {
+    try {
+      await this.adminService.triggerManualChannelPoll(id);
+      res.json({
+        success: true,
+        message: `Manually triggered immediate poll for channel ${id}`
+      });
+    } catch (error) {
+      console.error('Error triggering manual poll:', error);
+      res.status(500).json({
+        success: false,
+        message: 'Error triggering manual poll',
+        error: error.message
+      });
+    }
+  }
+
+  // ============== CONTENTS ==============
   @Get('contents')
   async contentsList(@Res() res: Response) {
-    const contents = await this.adminService.getAllContents();
-    const channels = await this.adminService.getAllChannels(); // For the dropdown
-
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>Contents - Simargl Admin</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        ${this.getSharedStyles()}
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>📄 Content Management</h1>
-            <p>Manage your content items</p>
-          </div>
-          
-          ${this.getNavigation('contents')}
-          
-          <div class="breadcrumb">
-            <a href="/admin">Dashboard</a> / Contents
-          </div>
-          
-          <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-              <h2>All Contents (${contents.length})</h2>
-              <a href="/admin/contents/new" class="btn btn-success">+ Add New Content</a>
-            </div>
-            
-            ${contents.length > 0 ? `
-              <table class="table">
-                <thead>
-                  <tr>
-                    <th>Title</th>
-                    <th>Channel</th>
-                    <th>Source ID</th>
-                    <th>Published</th>
-                    <th>Created</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  ${contents.map(content => `
-                    <tr>
-                      <td><strong>${content.title}</strong></td>
-                      <td>${content.channelId ? (content.channelId as any).name || 'Unknown' : 'No Channel'}</td>
-                      <td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 3px;">${content.sourceContentId}</code></td>
-                      <td>${content.publishedAt ? this.formatDate(content.publishedAt) : 'Not set'}</td>
-                      <td class="actions">
-                        <a href="/admin/contents/${content._id}" class="btn btn-primary">View</a>
-                        <a href="/admin/contents/${content._id}/edit" class="btn btn-secondary">Edit</a>
-                        <button onclick="deleteContent('${content._id}', '${content.title}')" class="btn btn-danger">Delete</button>
-                      </td>
-                    </tr>
-                  `).join('')}
-                </tbody>
-              </table>
-            ` : `
-              <div class="empty-state">
-                <h3>No contents found</h3>
-                <p>Create your first content item</p>
-                <a href="/admin/contents/new" class="btn btn-primary">Create First Content</a>
-              </div>
-            `}
-          </div>
-        </div>
-        
-        <script>
-          async function deleteContent(id, title) {
-            if (confirm('Are you sure you want to delete "' + title + '"? This action cannot be undone.')) {
-              try {
-                const response = await fetch('/admin/contents/' + id, { method: 'DELETE' });
-                if (response.ok) {
-                  alert('Content deleted successfully');
-                  location.reload();
-                } else {
-                  alert('Failed to delete content');
-                }
-              } catch (error) {
-                alert('Error: ' + error.message);
-              }
-            }
-          }
-        </script>
-      </body>
-      </html>
-    `;
+    const contentsRaw = await this.adminService.getAllContents();
     
-    res.send(html);
+    // Convert Mongoose documents to plain objects to avoid Handlebars property access issues
+    const contents = contentsRaw.map(content => ({
+      _id: content._id?.toString(),
+      title: content.title,
+      sourceContentId: content.sourceContentId,
+      channelId: content.channelId ? {
+        name: (content.channelId as any).name || 'Unknown',
+        sourceType: (content.channelId as any).sourceType || 'UNKNOWN'
+      } : null,
+      status: content.status,
+      publishedAt: content.publishedAt,
+      createdAt: (content as any).createdAt,
+      updatedAt: (content as any).updatedAt,
+      metadata: content.metadata ? {
+        thumbnails: { 
+          default: content.metadata.thumbnailUrl,
+          medium: content.metadata.thumbnailUrl 
+        },
+        viewCount: content.metadata.viewCount,
+        duration: content.metadata.duration
+      } : null,
+      analysis: content.analysis ? {
+        modelUsed: content.analysis.modelUsed,
+        result: content.analysis.result
+      } : null
+    }));
+    
+    // Calculate stats
+    const stats = {
+      total: contents.length,
+      analyzed: contents.filter(c => c.status === 'ANALYZED').length,
+      processing: contents.filter(c => c.status === 'PROCESSING').length,
+      failed: contents.filter(c => c.status === 'FAILED').length,
+    };
+
+    res.render('admin/content-list', {
+      title: 'Contents',
+      currentPage: 'contents',
+      showNavigation: true,
+      pageHeader: {
+        title: '📄 Content Management',
+        description: 'Manage your content items and analysis results',
+        actions: [
+          {
+            text: 'Add Content',
+            url: '/admin/contents/new',
+            class: 'inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500',
+            icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>'
+          }
+        ]
+      },
+      breadcrumbs: [
+        { title: 'Dashboard', url: '/admin' },
+        { title: 'Contents', url: '/admin/contents' }
+      ],
+      contents,
+      stats
+    });
   }
 
   // ============== CONTENT CRUD METHODS ==============
@@ -788,73 +526,67 @@ export class AdminController {
 
   @Get('contents/:id')
   async contentDetail(@Param('id') id: string, @Res() res: Response) {
-    const content = await this.adminService.getContentById(id);
-    if (!content) {
+    const contentRaw = await this.adminService.getContentById(id);
+    if (!contentRaw) {
       return res.status(404).send('Content not found');
     }
 
-    const html = `
-      <!DOCTYPE html>
-      <html>
-      <head>
-        <title>${content.title} - Simargl Admin</title>
-        <meta charset="utf-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1">
-        ${this.getSharedStyles()}
-      </head>
-      <body>
-        <div class="container">
-          <div class="header">
-            <h1>📄 ${content.title}</h1>
-            <p>Content Details</p>
-          </div>
-          
-          ${this.getNavigation('contents')}
-          
-          <div class="breadcrumb">
-            <a href="/admin">Dashboard</a> / <a href="/admin/contents">Contents</a> / ${content.title}
-          </div>
-          
-          <div class="card">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
-              <h2>Content Information</h2>
-              <div class="actions">
-                <a href="/admin/contents/${content._id}/edit" class="btn btn-primary">Edit Content</a>
-                <button onclick="deleteContent('${content._id}', '${content.title}')" class="btn btn-danger">Delete Content</button>
-              </div>
-            </div>
-            
-            <table class="table">
-              <tr><th>Title</th><td>${content.title}</td></tr>
-              <tr><th>Channel</th><td>${content.channelId ? (content.channelId as any).name || 'Unknown' : 'No Channel'}</td></tr>
-              <tr><th>Source ID</th><td><code style="background: #f1f5f9; padding: 2px 6px; border-radius: 3px;">${content.sourceContentId}</code></td></tr>
-              <tr><th>Description</th><td>${content.description || 'Not provided'}</td></tr>
-              <tr><th>Published</th><td>${content.publishedAt ? this.formatDate(content.publishedAt) : 'Not set'}</td></tr>
-            </table>
-          </div>
-        </div>
-        
-        <script>
-          async function deleteContent(id, title) {
-            if (confirm('Are you sure you want to delete "' + title + '"? This action cannot be undone.')) {
-              try {
-                const response = await fetch('/admin/contents/' + id, { method: 'DELETE' });
-                if (response.ok) {
-                  alert('Content deleted successfully');
-                  window.location.href = '/admin/contents';
-                } else {
-                  alert('Failed to delete content');
-                }
-              } catch (error) {
-                alert('Error: ' + error.message);
-              }
-            }
+    // Convert Mongoose document to plain object
+    const content = {
+      _id: contentRaw._id?.toString(),
+      title: contentRaw.title,
+      sourceContentId: contentRaw.sourceContentId,
+      description: contentRaw.description,
+      channelId: contentRaw.channelId ? {
+        name: (contentRaw.channelId as any).name || 'Unknown',
+        channelId: (contentRaw.channelId as any).channelId || ''
+      } : null,
+      status: contentRaw.status,
+      publishedAt: contentRaw.publishedAt,
+      createdAt: (contentRaw as any).createdAt,
+      updatedAt: (contentRaw as any).updatedAt,
+      metadata: contentRaw.metadata ? {
+        thumbnails: { 
+          default: contentRaw.metadata.thumbnailUrl,
+          high: contentRaw.metadata.thumbnailUrl 
+        },
+        viewCount: contentRaw.metadata.viewCount,
+        duration: contentRaw.metadata.duration
+      } : null,
+      analysis: contentRaw.analysis ? {
+        modelUsed: contentRaw.analysis.modelUsed,
+        promptVersion: contentRaw.analysis.promptVersion,
+        promptName: contentRaw.analysis.promptName,
+        promptId: contentRaw.analysis.promptId,
+        result: contentRaw.analysis.result
+      } : null
+    };
+
+    const data = {
+      title: content.title,
+      currentPage: 'contents',
+      pageHeader: {
+        title: content.title,
+        description: 'Content details and analysis results',
+        actions: [
+          {
+            url: `/admin/contents/${content._id}/edit`,
+            text: 'Edit',
+            class: 'btn btn-secondary',
+            icon: '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>'
           }
-        </script>
-      </body>
-      </html>
-    `;
-    
+        ]
+      },
+      breadcrumbs: [
+        { title: 'Dashboard', url: '/admin' },
+        { title: 'Contents', url: '/admin/contents' },
+        { title: content.title, url: `/admin/contents/${content._id}` }
+      ],
+      content,
+      contentCount: 0, // Will be populated by template service
+    };
+
+    const html = this.templateService.renderLayout('main', 'admin/content-detail.hbs', data);
     res.send(html);
   }
 

@@ -9,6 +9,7 @@ export class ApiController {
   constructor(
     private readonly apiService: ApiService,
     @InjectQueue('content-processing') private contentProcessingQueue: Queue,
+    @InjectQueue('channel-poll') private channelPollQueue: Queue,
     private quotaManager: QuotaManagerService,
   ) {}
 
@@ -18,20 +19,24 @@ export class ApiController {
   }
 
   @Post('test-video-analysis')
-  async testVideoAnalysis(@Body() body: { contentId: string }) {
-    console.log(`Manually triggering video analysis for content: ${body.contentId}`);
+  async testVideoAnalysis(@Body() body: { contentId: string; model?: string }) {
+    console.log(`Manually triggering video analysis for content: ${body.contentId}${body.model ? ` with model: ${body.model}` : ''}`);
     
     // Add job to content-processing queue (which will handle metadata → analysis pipeline)
     const job = await this.contentProcessingQueue.add('process-content', { 
-      contentId: body.contentId 
+      contentId: body.contentId,
+      forceModel: body.model // Pass model selection to the job
     });
     
     return {
       message: 'Video analysis job queued (metadata → analysis pipeline)',
       contentId: body.contentId,
       jobId: job.id,
+      model: body.model || 'auto-select',
     };
   }
+
+
 
   @Get('quota/status')
   getQuotaStatus() {
@@ -68,13 +73,28 @@ export class ApiController {
 
   @Get('quota/violations')
   getQuotaViolations() {
-    const violations = this.quotaManager.getQuotaViolations(50);
     const stats = this.quotaManager.getViolationStats();
     
     return {
-      violations,
+      violations: stats.recentViolations,
       statistics: stats,
       timestamp: new Date().toISOString(),
+    };
+  }
+
+  @Post('test-channel-poll')
+  async testChannelPoll(@Body() body: { channelId: string }) {
+    console.log(`Manually triggering channel poll for channel: ${body.channelId}`);
+    
+    // Add job to channel-poll queue
+    const job = await this.channelPollQueue.add('poll-channel', { 
+      channelId: body.channelId 
+    });
+    
+    return {
+      message: 'Channel poll job queued',
+      channelId: body.channelId,
+      jobId: job.id,
     };
   }
 

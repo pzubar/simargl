@@ -27,18 +27,57 @@ export class ChannelsService {
     const channel = new this.channelModel(createChannelDto);
     await channel.save();
 
-    // If it's a YouTube channel, schedule the channel poll task
+    // If it's a YouTube channel, schedule recurring polling
     if (channel.sourceType === 'YOUTUBE') {
-      await this.scheduleChannelPollTask(channel.id);
+      await this.scheduleRecurringChannelPoll(channel.id, channel.cronPattern);
     }
 
     return channel;
   }
 
+  async scheduleRecurringChannelPoll(channelId: string, cronPattern: string): Promise<void> {
+    const jobName = `poll-channel-${channelId}`;
+    
+    // Remove any existing recurring job for this channel
+    await this.removeRecurringChannelPoll(channelId);
+    
+    // Add new recurring job
+    await this.channelPollQueue.add(
+      'poll-channel',
+      { channelId },
+      {
+        repeat: { pattern: cronPattern },
+        removeOnComplete: 10, // Keep last 10 completed jobs
+        removeOnFail: 5, // Keep last 5 failed jobs
+        jobId: jobName, // Use consistent job ID for easy management
+      }
+    );
+    
+    console.log(`✅ Scheduled recurring job for channel ${channelId} with pattern: ${cronPattern}`);
+  }
+
+  async removeRecurringChannelPoll(channelId: string): Promise<void> {
+    const jobName = `poll-channel-${channelId}`;
+    
+    try {
+      // Get the repeatable job
+      const repeatableJobs = await this.channelPollQueue.getRepeatableJobs();
+      const jobToRemove = repeatableJobs.find(job => job.id === jobName);
+      
+      if (jobToRemove) {
+        await this.channelPollQueue.removeRepeatableByKey(jobToRemove.key);
+        console.log(`✅ Removed recurring job for channel ${channelId}`);
+      }
+    } catch (error) {
+      console.warn(`⚠️ Could not remove recurring job for channel ${channelId}: ${error.message}`);
+    }
+  }
+
   async scheduleChannelPollTask(channelId: string): Promise<void> {
+    // This method is deprecated, replaced with scheduleRecurringChannelPoll
     // Schedule an immediate job to start polling the channel
     await this.channelPollQueue.add('poll-channel', { channelId });
-    console.log(`✅ Scheduled channel poll task for channel: ${channelId}`);
+    console.log(`✅ Scheduled immediate channel poll task for channel: ${channelId}`);
   }
 
   async getAllChannels(): Promise<Channel[]> {
@@ -54,6 +93,17 @@ export class ChannelsService {
   }
 
   async deleteChannel(id: string): Promise<void> {
+    const channel = await this.channelModel.findById(id).exec();
+    if (!channel) {
+      throw new NotFoundException(`Channel with ID ${id} not found`);
+    }
+    
+    // Remove recurring job before deleting the channel if it's a YouTube channel
+    if (channel.sourceType === 'YOUTUBE') {
+      await this.removeRecurringChannelPoll(id);
+      console.log(`✅ Removed recurring job for deleted channel: ${channel.name}`);
+    }
+    
     const result = await this.channelModel.findByIdAndDelete(id).exec();
     if (!result) {
       throw new NotFoundException(`Channel with ID ${id} not found`);
@@ -62,6 +112,11 @@ export class ChannelsService {
   }
 
   async updateChannel(id: string, updateData: Partial<CreateChannelDto>): Promise<Channel> {
+    const currentChannel = await this.channelModel.findById(id).exec();
+    if (!currentChannel) {
+      throw new NotFoundException(`Channel with ID ${id} not found`);
+    }
+
     const channel = await this.channelModel.findByIdAndUpdate(
       id, 
       updateData, 
@@ -70,6 +125,13 @@ export class ChannelsService {
     
     if (!channel) {
       throw new NotFoundException(`Channel with ID ${id} not found`);
+    }
+
+    // If cronPattern was updated and it's a YouTube channel, reschedule the job
+    if (updateData.cronPattern && currentChannel.sourceType === 'YOUTUBE' && 
+        updateData.cronPattern !== currentChannel.cronPattern) {
+      await this.scheduleRecurringChannelPoll(id, updateData.cronPattern);
+      console.log(`✅ Updated recurring job for channel: ${channel.name} (${updateData.cronPattern})`);
     }
 
     return channel;

@@ -1,0 +1,184 @@
+<!-- Content List -->
+<div class="bg-white shadow rounded-lg">
+  <div class="px-4 py-5 sm:p-6">
+    {{#if contents.length}}
+      <div class="overflow-hidden">
+        <table class="min-w-full divide-y divide-gray-200">
+          <thead class="bg-gray-50">
+            <tr>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Content
+              </th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Channel
+              </th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Status
+              </th>
+              <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Published
+              </th>
+              <th scope="col" class="relative px-6 py-3">
+                <span class="sr-only">Actions</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody class="bg-white divide-y divide-gray-200">
+            {{#each contents}}
+              <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4">
+                  <div class="flex items-center">
+                    {{#if this.metadata.thumbnails.medium}}
+                      <div class="flex-shrink-0 h-10 w-10">
+                        <img class="h-10 w-10 rounded-lg object-cover" src="{{this.metadata.thumbnails.medium}}" alt="">
+                      </div>
+                    {{else}}
+                      <div class="flex-shrink-0 h-10 w-10">
+                        <div class="h-10 w-10 bg-gray-100 rounded-lg flex items-center justify-center">
+                          <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                          </svg>
+                        </div>
+                      </div>
+                    {{/if}}
+                    <div class="ml-4">
+                      <div class="text-sm font-medium text-gray-900 truncate max-w-xs">{{this.title}}</div>
+                      <div class="text-sm text-gray-500">
+                        <code class="bg-gray-100 px-2 py-1 rounded text-xs">{{this.sourceContentId}}</code>
+                      </div>
+                    </div>
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <div class="flex items-center">
+                    <div class="flex-shrink-0 h-8 w-8">
+                      <div class="h-8 w-8 {{#if (eq this.channelId.sourceType 'YOUTUBE')}}bg-red-100 text-red-600{{else if (eq this.channelId.sourceType 'TELEGRAM')}}bg-blue-100 text-blue-600{{else}}bg-gray-100 text-gray-600{{/if}} rounded-lg flex items-center justify-center">
+                        {{#if (eq this.channelId.sourceType 'YOUTUBE')}}
+                          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M23.498 6.186a2.999 2.999 0 0 0-2.11-2.11C19.505 3.546 12 3.546 12 3.546s-7.505 0-9.388.53A2.999 2.999 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a2.999 2.999 0 0 0 2.11 2.11c1.883.53 9.388.53 9.388.53s7.505 0 9.388-.53a2.999 2.999 0 0 0 2.11-2.11C24 15.93 24 12 24 12s0-3.93-.502-5.814z"></path>
+                            <path fill="white" d="m9.545 15.568 6.364-3.568-6.364-3.568v7.136z"></path>
+                          </svg>
+                        {{else if (eq this.channelId.sourceType 'TELEGRAM')}}
+                          <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+                            <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.568 8.16l-1.61 7.515c-.12.513-.44.64-.89.4l-2.463-1.815-1.187 1.14c-.131.131-.243.243-.5.243l.179-2.525 4.61-4.158c.2-.178-.043-.278-.31-.1l-5.685 3.585-2.45-.766c-.532-.166-.543-.532.112-.788l9.57-3.687c.444-.166.833.1.693.787z"></path>
+                          </svg>
+                        {{else}}
+                          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+                          </svg>
+                        {{/if}}
+                      </div>
+                    </div>
+                    <div class="ml-3">
+                      <div class="text-sm font-medium text-gray-900">{{this.channelId.name}}</div>
+                      <div class="text-sm text-gray-500">{{this.channelId.sourceType}}</div>
+                    </div>
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  {{#if (eq this.status 'ANALYZED')}}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                      <svg class="-ml-0.5 mr-1.5 h-2 w-2 text-green-400" fill="currentColor" viewBox="0 0 8 8">
+                        <circle cx="4" cy="4" r="3" />
+                      </svg>
+                      Analyzed
+                    </span>
+                  {{else if (eq this.status 'PROCESSING')}}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                      <svg class="-ml-0.5 mr-1.5 h-2 w-2 text-yellow-400" fill="currentColor" viewBox="0 0 8 8">
+                        <circle cx="4" cy="4" r="3" />
+                      </svg>
+                      Processing
+                    </span>
+                  {{else if (eq this.status 'FAILED')}}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                      <svg class="-ml-0.5 mr-1.5 h-2 w-2 text-red-400" fill="currentColor" viewBox="0 0 8 8">
+                        <circle cx="4" cy="4" r="3" />
+                      </svg>
+                      Failed
+                    </span>
+                  {{else}}
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                      <svg class="-ml-0.5 mr-1.5 h-2 w-2 text-blue-400" fill="currentColor" viewBox="0 0 8 8">
+                        <circle cx="4" cy="4" r="3" />
+                      </svg>
+                      {{this.status}}
+                    </span>
+                  {{/if}}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                  {{formatDate this.publishedAt}}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                  <div class="flex items-center space-x-2">
+                    {{#unless this.analysis}}
+                      <button onclick="triggerAnalysis('{{this._id}}')" class="text-green-600 hover:text-green-900 text-xs bg-green-50 hover:bg-green-100 px-2 py-1 rounded" title="Analyze now">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                        </svg>
+                      </button>
+                    {{/unless}}
+                    <a href="/admin/contents/{{this._id}}" class="text-blue-600 hover:text-blue-900 text-xs bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded">View</a>
+                    <a href="/admin/contents/{{this._id}}/edit" class="text-yellow-600 hover:text-yellow-900 text-xs bg-yellow-50 hover:bg-yellow-100 px-2 py-1 rounded">Edit</a>
+                    <button onclick="confirmDelete('{{this._id}}', '{{this.title}}', '/admin/contents')" class="text-red-600 hover:text-red-900 text-xs bg-red-50 hover:bg-red-100 px-2 py-1 rounded">Delete</button>
+                  </div>
+                </td>
+              </tr>
+            {{/each}}
+          </tbody>
+        </table>
+      </div>
+
+      {{#if (gt contents.length 25)}}
+        <div class="mt-4 flex items-center justify-between">
+          <div class="text-sm text-gray-500">
+            Showing {{contents.length}} of {{totalCount}} results
+          </div>
+          <!-- Pagination could go here -->
+        </div>
+      {{/if}}
+    {{else}}
+      <!-- Empty State -->
+      <div class="text-center py-12">
+        <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"></path>
+        </svg>
+        <h3 class="mt-2 text-sm font-medium text-gray-900">No content</h3>
+        <p class="mt-1 text-sm text-gray-500">No content has been processed yet. Content will appear here once channels start polling.</p>
+        <div class="mt-6">
+          <a href="/admin/channels" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m-6 0h6m0 0h6"></path>
+            </svg>
+            Manage Channels
+          </a>
+        </div>
+      </div>
+    {{/if}}
+  </div>
+</div>
+
+<script>
+  // Trigger analysis function for content
+  async function triggerAnalysis(contentId) {
+    if (confirm('Start analysis for this content?')) {
+      try {
+        const response = await fetch('/api/test-video-analysis', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ contentId })
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          alert(`Analysis started! Job ID: ${result.jobId}`);
+          location.reload();
+        } else {
+          alert('Error starting analysis');
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+  }
+</script> 

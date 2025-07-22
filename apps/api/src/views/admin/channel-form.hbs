@@ -1,0 +1,201 @@
+<!-- Channel Form -->
+<div class="bg-white shadow rounded-lg">
+  <div class="px-4 py-5 sm:p-6">
+    <form id="channelForm" {{#if channel}}data-channel-id="{{channel._id}}"{{/if}}>
+      <div class="space-y-6">
+        <!-- Channel Name -->
+        <div>
+          <label for="name" class="block text-sm font-medium text-gray-700">
+            Channel Name <span class="text-red-500">*</span>
+          </label>
+          <div class="mt-1">
+            <input type="text" name="name" id="name" required
+              class="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+              placeholder="e.g., My YouTube Channel"
+              value="{{#if channel}}{{channel.name}}{{/if}}">
+          </div>
+          <p class="mt-2 text-sm text-gray-500">A descriptive name for this channel</p>
+        </div>
+
+        <!-- Source Type -->
+        <div>
+          <label for="sourceType" class="block text-sm font-medium text-gray-700">
+            Source Type <span class="text-red-500">*</span>
+          </label>
+          <div class="mt-1">
+            <select name="sourceType" id="sourceType" required
+              class="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+              {{#if channel}}disabled{{/if}}>
+              <option value="">Select source type...</option>
+              <option value="YOUTUBE" {{#if (eq channel.sourceType 'YOUTUBE')}}selected{{/if}}>YouTube</option>
+              <option value="TELEGRAM" {{#if (eq channel.sourceType 'TELEGRAM')}}selected{{/if}}>Telegram</option>
+              <option value="TIKTOK" {{#if (eq channel.sourceType 'TIKTOK')}}selected{{/if}}>TikTok</option>
+            </select>
+          </div>
+          {{#if channel}}
+            <p class="mt-2 text-sm text-gray-500">Source type cannot be changed after creation</p>
+          {{/if}}
+        </div>
+
+        <!-- Source ID -->
+        <div>
+          <label for="sourceId" class="block text-sm font-medium text-gray-700">
+            Source ID <span class="text-red-500">*</span>
+          </label>
+          <div class="mt-1">
+            <input type="text" name="sourceId" id="sourceId" required
+              class="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+              placeholder="e.g., UCXuqSBlHAE6Xw-yeJA0Tunw"
+              value="{{#if channel}}{{channel.sourceId}}{{/if}}"
+              {{#if channel}}readonly{{/if}}>
+          </div>
+          <div id="sourceIdHelp" class="mt-2 text-sm text-gray-500">
+            <div id="youtubeHelp" class="hidden">
+              For YouTube: Channel ID (starts with UC), not the channel name or @handle
+            </div>
+            <div id="telegramHelp" class="hidden">
+              For Telegram: @username or channel ID
+            </div>
+            <div id="tiktokHelp" class="hidden">
+              For TikTok: Username without the @ symbol
+            </div>
+          </div>
+          {{#if channel}}
+            <p class="mt-2 text-sm text-gray-500">Source ID cannot be changed after creation</p>
+          {{/if}}
+        </div>
+
+        <!-- Fetch Last N -->
+        <div>
+          <label for="fetchLastN" class="block text-sm font-medium text-gray-700">
+            Fetch Last N Items
+          </label>
+          <div class="mt-1">
+            <input type="number" name="fetchLastN" id="fetchLastN" min="1" max="100"
+              class="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+              placeholder="5"
+              value="{{#if channel}}{{channel.fetchLastN}}{{else}}5{{/if}}">
+          </div>
+          <p class="mt-2 text-sm text-gray-500">Number of recent items to fetch during each polling cycle (1-100)</p>
+        </div>
+
+        <!-- Cron Pattern -->
+        <div>
+          <label for="cronPattern" class="block text-sm font-medium text-gray-700">
+            Polling Schedule (Cron Pattern)
+          </label>
+          <div class="mt-1">
+            <input type="text" name="cronPattern" id="cronPattern"
+              class="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+              placeholder="0 0 * * *"
+              value="{{#if channel}}{{channel.cronPattern}}{{else}}0 0 * * *{{/if}}">
+          </div>
+          <div class="mt-2 space-y-1">
+            <p class="text-sm text-gray-500">Default: Every 24 hours (daily at midnight)</p>
+            <div class="text-xs text-gray-400 space-y-1">
+              <div><code class="bg-gray-100 px-1 rounded">0 0 * * *</code> - Daily at midnight</div>
+              <div><code class="bg-gray-100 px-1 rounded">0 */12 * * *</code> - Every 12 hours</div>
+              <div><code class="bg-gray-100 px-1 rounded">0 */6 * * *</code> - Every 6 hours</div>
+              <div><code class="bg-gray-100 px-1 rounded">0 */3 * * *</code> - Every 3 hours</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Author Context -->
+        <div>
+          <label for="authorContext" class="block text-sm font-medium text-gray-700">
+            Author Context
+          </label>
+          <div class="mt-1">
+            <textarea name="authorContext" id="authorContext" rows="3"
+              class="shadow-sm focus:ring-blue-500 focus:border-blue-500 block w-full sm:text-sm border-gray-300 rounded-md"
+              placeholder="Brief description of the channel author/content style...">{{#if channel}}{{channel.authorContext}}{{/if}}</textarea>
+          </div>
+          <p class="mt-2 text-sm text-gray-500">Optional description of the channel's author or content style to help with analysis</p>
+        </div>
+      </div>
+
+      <!-- Form Actions -->
+      <div class="pt-6 border-t border-gray-200 mt-6">
+        <div class="flex justify-end space-x-3">
+          <a href="/admin/channels" 
+            class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            Cancel
+          </a>
+          <button type="submit"
+            class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+            </svg>
+            {{#if channel}}Update Channel{{else}}Create Channel{{/if}}
+          </button>
+        </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', function() {
+    const sourceTypeSelect = document.getElementById('sourceType');
+    const sourceIdInput = document.getElementById('sourceId');
+    
+    // Update help text based on source type
+    function updateSourceIdHelp() {
+      const sourceType = sourceTypeSelect.value;
+      document.querySelectorAll('[id$="Help"]').forEach(el => el.classList.add('hidden'));
+      
+      if (sourceType) {
+        const helpElement = document.getElementById(sourceType.toLowerCase() + 'Help');
+        if (helpElement) {
+          helpElement.classList.remove('hidden');
+        }
+      }
+    }
+    
+    sourceTypeSelect.addEventListener('change', updateSourceIdHelp);
+    updateSourceIdHelp(); // Initialize
+    
+    // Handle form submission
+    document.getElementById('channelForm').addEventListener('submit', async function(e) {
+      e.preventDefault();
+      
+      const formData = new FormData(e.target);
+      const data = Object.fromEntries(formData.entries());
+      
+      // Convert number fields
+      if (data.fetchLastN) data.fetchLastN = parseInt(data.fetchLastN);
+      
+      // Remove empty fields
+      Object.keys(data).forEach(key => {
+        if (data[key] === '' || data[key] === null || data[key] === undefined) {
+          delete data[key];
+        }
+      });
+      
+      const channelId = e.target.dataset.channelId;
+      const isEdit = !!channelId;
+      const url = isEdit ? `/admin/channels/${channelId}` : '/admin/channels';
+      const method = isEdit ? 'PUT' : 'POST';
+      
+      try {
+        const response = await fetch(url, {
+          method: method,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(data)
+        });
+        
+        if (response.ok) {
+          const result = await response.json();
+          alert(`Channel ${isEdit ? 'updated' : 'created'} successfully!`);
+          window.location.href = '/admin/channels';
+        } else {
+          const error = await response.text();
+          alert(`Error ${isEdit ? 'updating' : 'creating'} channel: ` + error);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    });
+  });
+</script> 

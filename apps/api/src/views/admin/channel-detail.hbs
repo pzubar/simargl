@@ -1,0 +1,298 @@
+<!-- Channel Header -->
+<div class="bg-white shadow rounded-lg mb-8">
+  <div class="px-4 py-5 sm:p-6">
+    <div class="sm:flex sm:items-center sm:justify-between">
+      <div class="flex items-center">
+        <div class="flex-shrink-0">
+          <div class="h-12 w-12 {{#if (eq channel.sourceType 'YOUTUBE')}}bg-red-100 text-red-600{{else if (eq channel.sourceType 'TELEGRAM')}}bg-blue-100 text-blue-600{{else}}bg-gray-100 text-gray-600{{/if}} rounded-lg flex items-center justify-center">
+            {{#if (eq channel.sourceType 'YOUTUBE')}}
+              <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M23.498 6.186a2.999 2.999 0 0 0-2.11-2.11C19.505 3.546 12 3.546 12 3.546s-7.505 0-9.388.53A2.999 2.999 0 0 0 .502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a2.999 2.999 0 0 0 2.11 2.11c1.883.53 9.388.53 9.388.53s7.505 0 9.388-.53a2.999 2.999 0 0 0 2.11-2.11C24 15.93 24 12 24 12s0-3.93-.502-5.814z"></path>
+                <path fill="white" d="m9.545 15.568 6.364-3.568-6.364-3.568v7.136z"></path>
+              </svg>
+            {{else if (eq channel.sourceType 'TELEGRAM')}}
+              <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+                <path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm5.568 8.16l-1.61 7.515c-.12.513-.44.64-.89.4l-2.463-1.815-1.187 1.14c-.131.131-.243.243-.5.243l.179-2.525 4.61-4.158c.2-.178-.043-.278-.31-.1l-5.685 3.585-2.45-.766c-.532-.166-.543-.532.112-.788l9.57-3.687c.444-.166.833.1.693.787z"></path>
+              </svg>
+            {{else}}
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+              </svg>
+            {{/if}}
+          </div>
+        </div>
+        <div class="ml-4">
+          <h2 class="text-2xl font-bold leading-7 text-gray-900">{{channel.name}}</h2>
+          <div class="mt-1 flex flex-col sm:flex-row sm:flex-wrap sm:space-x-6">
+            <div class="mt-2 flex items-center text-sm text-gray-500">
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{#if (eq channel.sourceType 'YOUTUBE')}}bg-red-100 text-red-800{{else if (eq channel.sourceType 'TELEGRAM')}}bg-blue-100 text-blue-800{{else}}bg-gray-100 text-gray-800{{/if}}">
+                {{channel.sourceType}}
+              </span>
+            </div>
+            <div class="mt-2 flex items-center text-sm text-gray-500">
+              <svg class="flex-shrink-0 mr-1.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+              </svg>
+              Created {{formatDate channel.createdAt}}
+            </div>
+            <div class="mt-2 flex items-center text-sm text-gray-500">
+              <svg class="flex-shrink-0 mr-1.5 h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              {{#if (eq channel.cronPattern '0 0 * * *')}}Daily at midnight{{else if (eq channel.cronPattern '0 */6 * * *')}}Every 6 hours{{else if (eq channel.cronPattern '0 */12 * * *')}}Every 12 hours{{else}}{{channel.cronPattern}}{{/if}}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="mt-5 flex sm:mt-0 sm:ml-4 space-x-3">
+        {{#if (eq channel.sourceType 'YOUTUBE')}}
+          <button onclick="pollChannelNow('{{channel._id}}')" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+            <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+            </svg>
+            Poll Now
+          </button>
+        {{/if}}
+        <a href="/admin/channels/{{channel._id}}/edit" class="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+          <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+          </svg>
+          Edit
+        </a>
+        <button onclick="confirmDelete('{{channel._id}}', '{{channel.name}}', '/admin/channels')" class="inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+          <svg class="-ml-0.5 mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+          </svg>
+          Delete
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+  <!-- Main Content -->
+  <div class="lg:col-span-2 space-y-8">
+    <!-- Channel Content -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-4 py-5 sm:p-6">
+        <div class="sm:flex sm:items-center sm:justify-between mb-6">
+          <h3 class="text-lg leading-6 font-medium text-gray-900">Channel Content</h3>
+          <div class="mt-3 sm:mt-0 sm:ml-4">
+            <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+              {{contents.length}} items
+            </span>
+          </div>
+        </div>
+
+        {{#if contents.length}}
+          <div class="overflow-hidden">
+            <table class="min-w-full divide-y divide-gray-200">
+              <thead class="bg-gray-50">
+                <tr>
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Content
+                  </th>
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Published
+                  </th>
+                  <th scope="col" class="relative px-6 py-3">
+                    <span class="sr-only">Actions</span>
+                  </th>
+                </tr>
+              </thead>
+              <tbody class="bg-white divide-y divide-gray-200">
+                {{#each contents}}
+                  <tr class="hover:bg-gray-50">
+                    <td class="px-6 py-4">
+                      <div class="flex items-center">
+                        <div class="flex-1 min-w-0">
+                          <p class="text-sm font-medium text-gray-900 truncate">{{this.title}}</p>
+                          <p class="text-sm text-gray-500 truncate">
+                            <code class="bg-gray-100 px-2 py-1 rounded text-xs">{{this.sourceContentId}}</code>
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap">
+                      {{#if (eq this.status 'ANALYZED')}}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          <svg class="-ml-0.5 mr-1.5 h-2 w-2 text-green-400" fill="currentColor" viewBox="0 0 8 8">
+                            <circle cx="4" cy="4" r="3" />
+                          </svg>
+                          Analyzed
+                        </span>
+                      {{else if (eq this.status 'PROCESSING')}}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800">
+                          <svg class="-ml-0.5 mr-1.5 h-2 w-2 text-yellow-400" fill="currentColor" viewBox="0 0 8 8">
+                            <circle cx="4" cy="4" r="3" />
+                          </svg>
+                          Processing
+                        </span>
+                      {{else if (eq this.status 'FAILED')}}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">
+                          <svg class="-ml-0.5 mr-1.5 h-2 w-2 text-red-400" fill="currentColor" viewBox="0 0 8 8">
+                            <circle cx="4" cy="4" r="3" />
+                          </svg>
+                          Failed
+                        </span>
+                      {{else}}
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          <svg class="-ml-0.5 mr-1.5 h-2 w-2 text-blue-400" fill="currentColor" viewBox="0 0 8 8">
+                            <circle cx="4" cy="4" r="3" />
+                          </svg>
+                          {{this.status}}
+                        </span>
+                      {{/if}}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {{formatDate this.publishedAt}}
+                    </td>
+                    <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <a href="/admin/contents/{{this._id}}" class="text-blue-600 hover:text-blue-900 text-xs bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded">View</a>
+                    </td>
+                  </tr>
+                {{/each}}
+              </tbody>
+            </table>
+          </div>
+          
+          {{#if (gt contents.length 10)}}
+            <div class="mt-4 text-center">
+              <a href="/admin/contents?channel={{channel._id}}" class="text-sm text-blue-600 hover:text-blue-800 font-medium">View all content for this channel →</a>
+            </div>
+          {{/if}}
+        {{else}}
+          <!-- Empty State -->
+          <div class="text-center py-12">
+            <svg class="mx-auto h-12 w-12 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z"></path>
+            </svg>
+            <h3 class="mt-2 text-sm font-medium text-gray-900">No content</h3>
+            <p class="mt-1 text-sm text-gray-500">This channel hasn't been polled yet or no content was found.</p>
+            {{#if (eq channel.sourceType 'YOUTUBE')}}
+              <div class="mt-6">
+                <button onclick="pollChannelNow('{{channel._id}}')" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+                  <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+                  </svg>
+                  Poll Channel Now
+                </button>
+              </div>
+            {{/if}}
+          </div>
+        {{/if}}
+      </div>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="space-y-6">
+    <!-- Channel Info -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-4 py-5 sm:p-6">
+        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Channel Information</h3>
+        <dl class="space-y-4">
+          <div>
+            <dt class="text-sm font-medium text-gray-500">Source ID</dt>
+            <dd class="mt-1 text-sm text-gray-900">
+              <code class="bg-gray-100 px-2 py-1 rounded text-xs">{{channel.sourceId}}</code>
+            </dd>
+          </div>
+          <div>
+            <dt class="text-sm font-medium text-gray-500">Source Type</dt>
+            <dd class="mt-1">
+              <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium {{#if (eq channel.sourceType 'YOUTUBE')}}bg-red-100 text-red-800{{else if (eq channel.sourceType 'TELEGRAM')}}bg-blue-100 text-blue-800{{else}}bg-gray-100 text-gray-800{{/if}}">
+                {{channel.sourceType}}
+              </span>
+            </dd>
+          </div>
+          <div>
+            <dt class="text-sm font-medium text-gray-500">Fetch Count</dt>
+            <dd class="mt-1 text-sm text-gray-900">{{channel.fetchLastN}} items</dd>
+          </div>
+          <div>
+            <dt class="text-sm font-medium text-gray-500">Cron Pattern</dt>
+            <dd class="mt-1 text-sm text-gray-900">
+              <code class="bg-gray-100 px-2 py-1 rounded text-xs">{{channel.cronPattern}}</code>
+              <div class="text-xs text-gray-500 mt-1">
+                {{#if (eq channel.cronPattern '0 0 * * *')}}Daily at midnight{{else if (eq channel.cronPattern '0 */6 * * *')}}Every 6 hours{{else if (eq channel.cronPattern '0 */12 * * *')}}Every 12 hours{{else}}Custom schedule{{/if}}
+              </div>
+            </dd>
+          </div>
+          <div>
+            <dt class="text-sm font-medium text-gray-500">Created</dt>
+            <dd class="mt-1 text-sm text-gray-900">{{formatDate channel.createdAt}}</dd>
+          </div>
+          <div>
+            <dt class="text-sm font-medium text-gray-500">Updated</dt>
+            <dd class="mt-1 text-sm text-gray-900">{{formatDate channel.updatedAt}}</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
+
+    {{#if channel.authorContext}}
+      <!-- Author Context -->
+      <div class="bg-white shadow rounded-lg">
+        <div class="px-4 py-5 sm:p-6">
+          <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Author Context</h3>
+          <p class="text-sm text-gray-700">{{channel.authorContext}}</p>
+        </div>
+      </div>
+    {{/if}}
+
+    <!-- Actions -->
+    <div class="bg-white shadow rounded-lg">
+      <div class="px-4 py-5 sm:p-6">
+        <h3 class="text-lg leading-6 font-medium text-gray-900 mb-4">Actions</h3>
+        <div class="space-y-3">
+          {{#if (eq channel.sourceType 'YOUTUBE')}}
+            <button onclick="pollChannelNow('{{channel._id}}')" class="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500">
+              <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+              </svg>
+              Poll Channel Now
+            </button>
+          {{/if}}
+          <a href="/admin/channels/{{channel._id}}/edit" class="w-full inline-flex items-center justify-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
+            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"></path>
+            </svg>
+            Edit Channel
+          </a>
+          <button onclick="confirmDelete('{{channel._id}}', '{{channel.name}}', '/admin/channels')" class="w-full inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-red-600 hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500">
+            <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+            </svg>
+            Delete Channel
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  async function pollChannelNow(channelId) {
+    if (confirm('Trigger immediate polling for this channel?')) {
+      try {
+        const response = await fetch(`/admin/channels/${channelId}/poll-now`, { method: 'POST' });
+        const result = await response.json();
+        
+        if (result.success) {
+          alert(result.message);
+          // Reload to show any new content
+          location.reload();
+        } else {
+          alert('Error: ' + result.message);
+        }
+      } catch (error) {
+        alert('Error: ' + error.message);
+      }
+    }
+  }
+</script> 
