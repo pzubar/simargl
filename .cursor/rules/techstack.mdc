@@ -1,5 +1,92 @@
----
-alwaysApply: true
+# Technology Stack Overview
+
+## Core Technologies
+
+### Backend Framework
+- **NestJS** - Node.js framework with TypeScript, decorators, and dependency injection
+- **Express.js** - HTTP server (underlying NestJS platform)
+- **TypeScript** - Primary programming language
+
+### Database & Storage
+- **MongoDB** - Primary database with Mongoose ODM
+- **Redis** - Cache and message broker for BullMQ job queues
+
+### Task Processing
+- **BullMQ** - Background job processing and scheduling
+- **Bull Board** - Web UI for monitoring job queues
+
+### Template Engine & Frontend
+- **Handlebars (HBS)** - Server-side templating engine
+- **Tailwind CSS** - Utility-first CSS framework
+- **Alpine.js** - Lightweight JavaScript framework for interactivity
+
+### External APIs
+- **Google Gemini AI** - Content analysis and AI processing
+- **YouTube Data API v3** - Video and channel data fetching
+- **Telegram Bot API** - Telegram channel integration
+
+### Development Tools
+- **Docker & Docker Compose** - Containerization and development environment
+- **Jest** - Testing framework
+- **ESLint** - Code linting
+- **Prettier** - Code formatting
+
+## Architecture Overview
+
+### Service Architecture
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Admin UI      │    │   API Endpoints │    │  Background     │
+│   (Handlebars)  │────│   (NestJS)      │────│  Jobs (BullMQ)  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         │                       │                       │
+         ▼                       ▼                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   MongoDB       │    │   Services      │    │   Redis         │
+│   (Data Store)  │    │   Layer         │    │   (Jobs/Cache)  │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+### Key Components
+- **Admin Dashboard** - Web interface for managing channels, content, and prompts
+- **Channel Management** - YouTube/Telegram channel configuration and polling
+- **Content Analysis** - AI-powered content analysis using Google Gemini
+- **Quota Management** - API rate limiting and usage tracking
+- **Template System** - Handlebars-based view rendering
+
+### Data Flow
+1. **Content Ingestion**: Scheduled jobs poll YouTube/Telegram channels
+2. **Processing**: Content is queued for AI analysis via BullMQ
+3. **Analysis**: Google Gemini API processes content using custom prompts
+4. **Storage**: Results stored in MongoDB with structured schemas
+5. **Admin Interface**: Handlebars templates render data for management UI
+
+## Port Configuration
+- **API Server**: 3333 (development)
+- **MongoDB**: 27018 → 27017 (host → container)
+- **Redis**: 6380 → 6379 (host → container)
+
+## File Structure Overview
+```
+apps/api/src/
+├── admin/           # Admin dashboard controllers and services
+├── channels/        # Channel management functionality
+├── schemas/         # MongoDB data models
+├── services/        # Shared business services
+├── tasks/           # Background job processors
+├── views/           # Handlebars templates
+└── scripts/         # Utility and setup scripts
+```
+
+## Development Workflow
+1. All development happens inside Docker containers
+2. Hot reload enabled for rapid development
+3. Handlebars templates for all UI rendering
+4. Tailwind CSS for consistent design
+5. Background jobs handle heavy processing
+6. MongoDB for data persistence
+7. Redis for job queues and caching
+
 ---
 
-Run all the scripts inside the appropriate Docker containers.

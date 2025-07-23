@@ -90,7 +90,17 @@ export class ChannelPollProcessor extends WorkerHost {
                 });
                 
                 await newContent.save();
-                await this.contentProcessingQueue.add('process-content', { contentId: newContent._id });
+                await this.contentProcessingQueue.add('process-content', { 
+                  contentId: newContent._id.toString() // Ensure it's a string
+                }, {
+                  attempts: 3,
+                  backoff: {
+                    type: 'exponential',
+                    delay: 5000,
+                  },
+                  removeOnComplete: 10,
+                  removeOnFail: 20,
+                });
                 newVideosCount++;
               } else {
                 this.logger.debug(`⏭️ Skipping existing video: ${sourceContentId}`);

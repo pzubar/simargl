@@ -443,11 +443,11 @@
             <div class="card-body">
                 <div class="space-y-3">
                     {{#unless content.analysis}}
-                        <button onclick="triggerAnalysis('{{content._id}}')" class="w-full btn btn-success">
+                        <button onclick="triggerAnalysis('{{../content._id}}')" class="w-full btn btn-success">
                             <svg class="-ml-1 mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                             </svg>
-                            {{#if (eq content.status 'FAILED')}}Retry Analysis{{else}}Start Analysis{{/if}}
+                            {{#if (eq ../content.status 'FAILED')}}Retry Analysis{{else}}Start Analysis{{/if}}
                         </button>
                     {{/unless}}
                     <a href="/admin/contents/{{content._id}}/edit" class="w-full btn btn-secondary">
@@ -471,6 +471,36 @@
 <script>
     // Trigger analysis function with model selection
     function triggerAnalysis(contentId) {
+        // Enhanced debugging
+        console.log('🔍 triggerAnalysis (detail) called with:', {
+            contentId: contentId,
+            contentIdType: typeof contentId,
+            contentIdLength: contentId ? contentId.length : 'N/A',
+            contentIdString: JSON.stringify(contentId)
+        });
+        
+        // Validate contentId before proceeding
+        if (!contentId) {
+            console.error('❌ Empty contentId provided to triggerAnalysis');
+            alert('Error: Content ID is missing. Please refresh the page and try again.');
+            return;
+        }
+        
+        if (typeof contentId !== 'string') {
+            console.error('❌ Invalid contentId type:', typeof contentId);
+            alert('Error: Invalid content ID format. Please refresh the page and try again.');
+            return;
+        }
+        
+        const trimmedContentId = contentId.trim();
+        if (trimmedContentId === '') {
+            console.error('❌ Empty contentId after trimming');
+            alert('Error: Content ID is empty. Please refresh the page and try again.');
+            return;
+        }
+        
+        console.log('✅ ContentId validation passed:', trimmedContentId);
+        
         // First fetch available models
         fetch('/api/quota/models')
             .then(response => response.json())
@@ -488,27 +518,35 @@
                 }
                 
                 if (confirm(`Start analysis for this content${selectedModel ? ` using model: ${selectedModel}` : ' with auto-model selection'}?`)) {
-                    const requestBody = { contentId };
+                    const requestBody = { contentId: trimmedContentId };
                     if (selectedModel) {
                         requestBody.model = selectedModel;
                     }
+                    
+                    console.log('📨 Sending request (detail):', requestBody);
                     
                     fetch('/api/test-video-analysis', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify(requestBody)
                     })
-                    .then(response => response.json())
+                    .then(response => {
+                        console.log('📡 Response status (detail):', response.status);
+                        return response.json();
+                    })
                     .then(data => {
+                        console.log('✅ Success response (detail):', data);
                         alert(`Analysis started! Job ID: ${data.jobId}\nModel: ${data.model}`);
                         location.reload();
                     })
                     .catch(error => {
+                        console.error('❌ Request error (detail):', error);
                         alert('Error: ' + error.message);
                     });
                 }
             })
             .catch(error => {
+                console.error('❌ Models fetch error:', error);
                 alert('Error fetching models: ' + error.message);
             });
     }

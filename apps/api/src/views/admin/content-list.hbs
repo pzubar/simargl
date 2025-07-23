@@ -7,7 +7,6 @@
           <thead class="bg-gray-50">
             <tr>
               <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                Content
               </th>
               <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                 Channel
@@ -112,10 +111,11 @@
                 <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                   <div class="flex items-center space-x-2">
                     {{#unless this.analysis}}
-                      <button onclick="triggerAnalysis('{{this._id}}')" class="text-green-600 hover:text-green-900 text-xs bg-green-50 hover:bg-green-100 px-2 py-1 rounded" title="Analyze now">
+                      <button onclick="triggerAnalysis('{{../_id}}')" class="text-green-600 hover:text-green-900 text-xs bg-green-50 hover:bg-green-100 px-2 py-1 rounded" title="Analyze now">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path>
                         </svg>
+                        Analyze
                       </button>
                     {{/unless}}
                     <a href="/admin/contents/{{this._id}}" class="text-blue-600 hover:text-blue-900 text-xs bg-blue-50 hover:bg-blue-100 px-2 py-1 rounded">View</a>
@@ -161,22 +161,61 @@
 <script>
   // Trigger analysis function for content
   async function triggerAnalysis(contentId) {
+    // Enhanced debugging
+    console.log('🔍 triggerAnalysis called with:', {
+      contentId: contentId,
+      contentIdType: typeof contentId,
+      contentIdLength: contentId ? contentId.length : 'N/A',
+      contentIdString: JSON.stringify(contentId)
+    });
+    
+    // Validate contentId before proceeding
+    if (!contentId) {
+      console.error('❌ Empty contentId provided to triggerAnalysis');
+      alert('Error: Content ID is missing. Please refresh the page and try again.');
+      return;
+    }
+    
+    if (typeof contentId !== 'string') {
+      console.error('❌ Invalid contentId type:', typeof contentId);
+      alert('Error: Invalid content ID format. Please refresh the page and try again.');
+      return;
+    }
+    
+    const trimmedContentId = contentId.trim();
+    if (trimmedContentId === '') {
+      console.error('❌ Empty contentId after trimming');
+      alert('Error: Content ID is empty. Please refresh the page and try again.');
+      return;
+    }
+    
+    console.log('✅ ContentId validation passed:', trimmedContentId);
+    
     if (confirm('Start analysis for this content?')) {
       try {
+        const requestBody = { contentId: trimmedContentId };
+        console.log('📨 Sending request:', requestBody);
+        
         const response = await fetch('/api/test-video-analysis', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ contentId })
+          body: JSON.stringify(requestBody)
         });
+        
+        console.log('📡 Response status:', response.status);
         
         if (response.ok) {
           const result = await response.json();
+          console.log('✅ Success response:', result);
           alert(`Analysis started! Job ID: ${result.jobId}`);
           location.reload();
         } else {
-          alert('Error starting analysis');
+          const errorText = await response.text();
+          console.error('❌ Error response:', errorText);
+          alert('Error starting analysis: ' + errorText);
         }
       } catch (error) {
+        console.error('❌ Request error:', error);
         alert('Error: ' + error.message);
       }
     }

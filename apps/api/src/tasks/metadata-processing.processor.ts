@@ -50,10 +50,18 @@ export class MetadataProcessingProcessor extends WorkerHost {
       this.logger.log(`   📊 Duration: ${Math.round(metadata.duration / 60)}m ${metadata.duration % 60}s`);
       this.logger.log(`   👀 Views: ${metadata.viewCount.toLocaleString()}`);
 
-      // Queue for analysis
+      // Queue for analysis with retry configuration
       await this.analysisQueue.add('analyze-content', { 
         contentId: content._id,
         hasMetadata: true // Flag to indicate metadata is already available
+      }, {
+        attempts: 4, // Total attempts (1 initial + 3 retries)
+        backoff: {
+          type: 'exponential',
+          delay: 30000, // 30 seconds base delay
+        },
+        removeOnComplete: 10, // Keep last 10 completed jobs
+        removeOnFail: 20, // Keep last 20 failed jobs for debugging
       });
 
     } catch (error) {

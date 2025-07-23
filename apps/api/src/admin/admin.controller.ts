@@ -154,6 +154,8 @@ export class AdminController {
       metadata: channel.metadata || {}
     }));
 
+
+    console.log(JSON.stringify(channels, null, 2));
     const html = this.templateService.renderLayout('main', 'admin/channels-list.hbs', {
       title: 'Channels',
       currentPage: 'channels',
@@ -222,7 +224,7 @@ export class AdminController {
         content.channelId && content.channelId._id && content.channelId._id.toString() === id
       ).slice(0, 10);
 
-      res.render('admin/channel-detail', {
+      const html = this.templateService.renderLayout('main', 'admin/channel-detail.hbs', {
         title: channel.name,
         currentPage: 'channels',
         showNavigation: true,
@@ -246,6 +248,7 @@ export class AdminController {
         channel,
         contents
       });
+      res.send(html);
     } catch (error) {
       console.error('Error loading channel detail:', error);
       res.status(500).send('Error loading channel');
@@ -412,7 +415,7 @@ export class AdminController {
         modelUsed: content.analysis.modelUsed,
         result: content.analysis.result
       } : null
-    }));
+    })); 
     
     // Calculate stats
     const stats = {

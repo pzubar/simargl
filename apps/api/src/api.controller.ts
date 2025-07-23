@@ -20,17 +20,50 @@ export class ApiController {
 
   @Post('test-video-analysis')
   async testVideoAnalysis(@Body() body: { contentId: string; model?: string }) {
-    console.log(`Manually triggering video analysis for content: ${body.contentId}${body.model ? ` with model: ${body.model}` : ''}`);
+    // Enhanced logging for debugging
+    console.log(`📨 Received video analysis request:`, {
+      body: body,
+      contentId: body?.contentId,
+      model: body?.model,
+      bodyType: typeof body,
+      bodyKeys: body ? Object.keys(body) : 'null/undefined'
+    });
+    
+    // Validate required fields
+    if (!body) {
+      throw new Error('Request body is missing');
+    }
+    
+    if (!body.hasOwnProperty('contentId')) {
+      throw new Error(`contentId is required. Received: ${JSON.stringify(body)}`);
+    }
+    
+    if (typeof body.contentId !== 'string' || body.contentId.trim() === '') {
+      throw new Error(`contentId must be a non-empty string. Received: "${body.contentId}" (type: ${typeof body.contentId})`);
+    }
+    
+    const contentId = body.contentId.trim();
+    console.log(`✅ Valid contentId received: "${contentId}"`);
     
     // Add job to content-processing queue (which will handle metadata → analysis pipeline)
     const job = await this.contentProcessingQueue.add('process-content', { 
-      contentId: body.contentId,
+      contentId: contentId,
       forceModel: body.model // Pass model selection to the job
+    }, {
+      attempts: 4, // Total attempts (1 initial + 3 retries)
+      backoff: {
+        type: 'exponential',
+        delay: 30000, // 30 seconds base delay for overload errors
+      },
+      removeOnComplete: 10,
+      removeOnFail: 20,
     });
+    
+    console.log(`🚀 Job queued successfully: ${job.id} for content: ${contentId}`);
     
     return {
       message: 'Video analysis job queued (metadata → analysis pipeline)',
-      contentId: body.contentId,
+      contentId: contentId,
       jobId: job.id,
       model: body.model || 'auto-select',
     };

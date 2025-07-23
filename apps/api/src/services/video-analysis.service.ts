@@ -47,6 +47,7 @@ export interface ChunkAnalysisResult {
   success: boolean;
   error?: string;
   modelUsed?: string; // Track which model was used for this analysis
+  isModelOverloaded?: boolean; // New field to track overload situations
 }
 
 export interface CombinedAnalysisResult {
@@ -79,8 +80,12 @@ export class VideoAnalysisService {
   // Configuration constants
   private readonly MAX_CHUNK_DURATION = 15 * 60; // 15 minutes per chunk
   private readonly OVERLAP_DURATION = 30; // 30 seconds overlap between chunks
-  private readonly MAX_RETRIES = 1;
-  private readonly RETRY_DELAY = 2000; // 2 seconds
+  private readonly MAX_RETRIES = 3; // Increased for better handling
+  private readonly RETRY_DELAY = 2000; // 2 seconds base delay
+  
+  // 503 error specific configuration
+  private readonly OVERLOAD_RETRY_DELAY = 30000; // 30 seconds for overload errors
+  private readonly MAX_OVERLOAD_RETRIES = 2; // Specific retries for overload errors
 
   constructor(
     private configService: ConfigService,
@@ -412,6 +417,68 @@ export class VideoAnalysisService {
   }
 
   /**
+   * Check if error is a 503 model overloaded error
+   */
+  private isModelOverloadedError(error: any): boolean {
+    // Check for 503 status code
+    if (error.status === 503 || error.code === 503) {
+      return true;
+    }
+    
+    // Check error message content for overload indicators
+    const errorMessage = error?.message || error?.error?.message || '';
+    const overloadKeywords = [
+      'overloaded',
+      'UNAVAILABLE',
+      'Service Unavailable',
+      'try again later',
+      'too many requests',
+      'capacity'
+    ];
+    
+    return overloadKeywords.some(keyword => 
+      errorMessage.toLowerCase().includes(keyword.toLowerCase())
+    );
+  }
+
+  /**
+   * Handle model overload by finding alternative model
+   */
+  private async handleModelOverload(
+    currentModel: string,
+    estimatedTokens: number,
+    attempt: number
+  ): Promise<{ model: string | null; reason?: string }> {
+    this.logger.warn(
+      `🔄 Model ${currentModel} is overloaded. Attempting to find alternative model (attempt ${attempt})`
+    );
+
+    // Temporarily mark current model as overloaded
+    this.quotaManager.markModelAsOverloaded(currentModel);
+
+    // Find next best available model
+    const modelSelection = await this.quotaManager.findBestAvailableModel(
+      estimatedTokens,
+      [currentModel] // Exclude the overloaded model
+    );
+
+    if (modelSelection.model) {
+      this.logger.log(
+        `✅ Switched from overloaded ${currentModel} to ${modelSelection.model}`
+      );
+      return modelSelection;
+    }
+
+    this.logger.error(
+      `❌ No alternative models available. All models may be overloaded.`
+    );
+    return {
+      model: null,
+      reason: 'All models are overloaded or unavailable'
+    };
+  }
+
+  /**
    * Analyze a single video chunk
    */
   async analyzeVideoChunk(
@@ -436,22 +503,23 @@ export class VideoAnalysisService {
 
       let lastError: Error | null = null;
       let model: string = '';
+      let isOverloadedError = false;
+      let overloadRetryCount = 0;
 
-      // Retry logic with memory optimization and automatic model switching
+      // Calculate accurate token estimation based on official Gemini API documentation (outside retry loop)
+      const textPromptTokens = this.quotaManager.estimateTokenCount(basePrompt);
+      const videoTokens = this.calculateVideoTokens(chunk.duration);
+      const estimatedTokens = textPromptTokens + videoTokens;
+
+      // Enhanced retry logic with model switching for overloaded errors
       for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
         try {
           // Prepare the end offset for video segmentation (Google API expects seconds format)
           const endOffsetSeconds = Math.round(chunk.endTime);
           const endOffset = `${endOffsetSeconds}s`; // Must end with 's' for Google API
 
-          // Calculate accurate token estimation based on official Gemini API documentation
-          const textPromptTokens =
-            this.quotaManager.estimateTokenCount(basePrompt);
-          const videoTokens = this.calculateVideoTokens(chunk.duration);
-          const estimatedTokens = textPromptTokens + videoTokens;
-
           // Use forced model or find the best available model for this request
-          if (forceModel) {
+          if (forceModel && attempt === 1) {
             model = forceModel;
             this.logger.log(`🎯 Using forced model: ${model}`);
 
@@ -464,7 +532,7 @@ export class VideoAnalysisService {
             }
 
             // Check if we can make the request with this model
-            const quotaCheck = await this.quotaManager.canMakeRequest(
+            const quotaCheck = this.quotaManager.canMakeRequest(
               model,
               estimatedTokens,
             );
@@ -474,8 +542,14 @@ export class VideoAnalysisService {
               );
             }
           } else {
+            // For retries after overload, exclude the previously failed model
+            const excludeModels = isOverloadedError && lastError ? [model] : [];
+            
             const modelSelection =
-              await this.quotaManager.findBestAvailableModel(estimatedTokens);
+              await this.quotaManager.findBestAvailableModel(
+                estimatedTokens,
+                excludeModels
+              );
 
             if (!modelSelection.model) {
               throw new Error(
@@ -620,12 +694,40 @@ export class VideoAnalysisService {
             processingTime,
             success: true,
             modelUsed: model,
+            isModelOverloaded: false,
           };
         } catch (error) {
           lastError = error;
+          isOverloadedError = this.isModelOverloadedError(error);
 
-          // Check if this is a quota violation error (429 status code)
-          if (
+          // Handle different types of errors with appropriate strategies
+          if (isOverloadedError) {
+            overloadRetryCount++;
+            this.logger.error(
+              `📊 Model overload error for ${model}: ${error.message}`,
+            );
+            
+                         // Try to switch to a different model for overload errors
+             if (overloadRetryCount <= this.MAX_OVERLOAD_RETRIES) {
+               const alternativeModel = await this.handleModelOverload(
+                 model,
+                 estimatedTokens,
+                 overloadRetryCount
+               );
+              
+              if (alternativeModel.model) {
+                this.logger.log(
+                  `🔄 Retrying with alternative model: ${alternativeModel.model}`
+                );
+                // Use longer delay for overload errors
+                await new Promise((resolve) =>
+                  setTimeout(resolve, this.OVERLOAD_RETRY_DELAY)
+                );
+                continue; // Retry with new model
+              }
+            }
+          } else if (
+            // Handle quota violation errors (429 status code)
             error.status === 429 ||
             error.code === 429 ||
             (error.message && error.message.includes('quota')) ||
@@ -643,11 +745,15 @@ export class VideoAnalysisService {
           );
 
           if (attempt < this.MAX_RETRIES) {
+            const delay = isOverloadedError 
+              ? this.OVERLOAD_RETRY_DELAY 
+              : this.RETRY_DELAY * attempt;
+            
             this.logger.log(
-              `⏳ Waiting ${this.RETRY_DELAY * attempt}ms before retry...`,
+              `⏳ Waiting ${delay}ms before retry...`,
             );
             await new Promise((resolve) =>
-              setTimeout(resolve, this.RETRY_DELAY * attempt),
+              setTimeout(resolve, delay),
             );
           }
         }
@@ -665,6 +771,7 @@ export class VideoAnalysisService {
         processingTime,
         success: false,
         error: lastError?.message || 'Unknown error',
+        isModelOverloaded: isOverloadedError,
       };
     } catch (error) {
       const processingTime = Date.now() - startTime;
@@ -678,6 +785,7 @@ export class VideoAnalysisService {
         processingTime,
         success: false,
         error: error.message,
+        isModelOverloaded: this.isModelOverloadedError(error),
       };
     }
   }

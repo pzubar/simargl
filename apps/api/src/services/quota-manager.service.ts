@@ -43,6 +43,10 @@ export class QuotaManagerService {
   private quotaUsage: Map<string, QuotaUsage> = new Map();
   private quotaViolations: QuotaViolation[] = [];
   private currentTier: 'free' | 'tier1' | 'tier2' | 'tier3' = 'free';
+  
+  // Track temporarily overloaded models
+  private overloadedModels: Map<string, Date> = new Map();
+  private readonly OVERLOAD_TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
   // Updated quota limits based on official Gemini API documentation
   private quotaLimits = {
@@ -403,21 +407,72 @@ export class QuotaManagerService {
   }
 
   /**
+   * Mark a model as temporarily overloaded
+   */
+  markModelAsOverloaded(model: string): void {
+    this.overloadedModels.set(model, new Date());
+    this.logger.warn(
+      `🚫 Temporarily marking ${model} as overloaded for ${this.OVERLOAD_TIMEOUT / 60000} minutes`
+    );
+  }
+
+  /**
+   * Check if a model is currently marked as overloaded
+   */
+  isModelOverloaded(model: string): boolean {
+    const overloadTime = this.overloadedModels.get(model);
+    if (!overloadTime) {
+      return false;
+    }
+
+    const now = new Date();
+    const timeSinceOverload = now.getTime() - overloadTime.getTime();
+    
+    if (timeSinceOverload > this.OVERLOAD_TIMEOUT) {
+      // Clear the overload flag after timeout
+      this.overloadedModels.delete(model);
+      this.logger.log(`✅ Cleared overload flag for ${model} after timeout`);
+      return false;
+    }
+
+    return true;
+  }
+
+  /**
    * Find the best available model that can handle the request
    */
-  async findBestAvailableModel(estimatedTokens: number = 1000): Promise<{
+  async findBestAvailableModel(
+    estimatedTokens: number = 1000,
+    excludeModels: string[] = []
+  ): Promise<{
     model: GeminiModel | null;
     reason?: string;
   }> {
     const availableModels = this.getAvailableModels();
 
     for (const model of availableModels) {
+      // Skip excluded models
+      if (excludeModels.includes(model)) {
+        this.logger.debug(`⏭️ Skipping excluded model: ${model}`);
+        continue;
+      }
+
+      // Skip temporarily overloaded models
+      if (this.isModelOverloaded(model)) {
+        this.logger.debug(`⏭️ Skipping overloaded model: ${model}`);
+        continue;
+      }
+
       const check = this.canMakeRequest(model, estimatedTokens);
       if (check.allowed) {
         this.logger.log(
           `✅ Selected model: ${model} for request with ${estimatedTokens} tokens`,
         );
         return { model };
+      } else {
+        this.logger.debug(
+          `⏭️ Skipping ${model}: ${check.reason}`
+        );
       }
     }
 
@@ -426,7 +481,7 @@ export class QuotaManagerService {
     );
     return {
       model: null,
-      reason: 'All models have exceeded their quota limits',
+      reason: 'All models have exceeded their quota limits or are overloaded',
     };
   }
 
