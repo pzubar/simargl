@@ -95,6 +95,29 @@ async function bootstrap() {
     );
   }
 
+  // Set up AdminJS component watching for development
+  if (process.env.NODE_ENV !== 'production') {
+    try {
+      // Import AdminJS and componentLoader
+      const AdminJS = require('adminjs');
+      const { componentLoader } = require('./admin/components');
+      
+      // Create AdminJS instance with the same componentLoader
+      const admin = new AdminJS({
+        componentLoader,
+      });
+      
+      // Start watching components for changes
+      admin.watch().then(() => {
+        console.log('✅ AdminJS component watching enabled for development');
+      }).catch((err) => {
+        console.warn('⚠️ AdminJS component watching setup failed:', err.message);
+      });
+    } catch (error) {
+      console.warn('⚠️ Could not enable AdminJS component watching:', error.message);
+    }
+  }
+
   // AdminJS interface is now available at /admin
   console.log('✅ AdminJS interface available at /admin');
 
