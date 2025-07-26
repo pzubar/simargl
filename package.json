@@ -31,6 +31,9 @@
     "build:css:copy": "npm run build:css && docker cp simargl-api-dev:/usr/src/app/apps/api/src/public/output.css apps/api/src/public/output.css"
   },
   "dependencies": {
+    "@adminjs/express": "^5.1.0",
+    "@adminjs/mongoose": "^3.0.3",
+    "@adminjs/nestjs": "^5.1.1",
     "@bull-board/api": "^6.11.1",
     "@bull-board/express": "^6.11.1",
     "@bull-board/nestjs": "^6.11.1",
@@ -42,6 +45,7 @@
     "@nestjs/core": "^11.0.1",
     "@nestjs/mongoose": "^11.0.3",
     "@nestjs/platform-express": "^11.0.1",
+    "adminjs": "^6.8.7",
     "bullmq": "^5.56.4",
     "express-formidable": "^1.2.0",
     "express-handlebars": "^8.0.3",

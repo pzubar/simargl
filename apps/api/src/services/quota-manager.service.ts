@@ -43,7 +43,7 @@ export class QuotaManagerService {
   private quotaUsage: Map<string, QuotaUsage> = new Map();
   private quotaViolations: QuotaViolation[] = [];
   private currentTier: 'free' | 'tier1' | 'tier2' | 'tier3' = 'free';
-  
+
   // Track temporarily overloaded models
   private overloadedModels: Map<string, Date> = new Map();
   private readonly OVERLOAD_TIMEOUT = 5 * 60 * 1000; // 5 minutes
@@ -412,7 +412,7 @@ export class QuotaManagerService {
   markModelAsOverloaded(model: string): void {
     this.overloadedModels.set(model, new Date());
     this.logger.warn(
-      `🚫 Temporarily marking ${model} as overloaded for ${this.OVERLOAD_TIMEOUT / 60000} minutes`
+      `🚫 Temporarily marking ${model} as overloaded for ${this.OVERLOAD_TIMEOUT / 60000} minutes`,
     );
   }
 
@@ -427,7 +427,7 @@ export class QuotaManagerService {
 
     const now = new Date();
     const timeSinceOverload = now.getTime() - overloadTime.getTime();
-    
+
     if (timeSinceOverload > this.OVERLOAD_TIMEOUT) {
       // Clear the overload flag after timeout
       this.overloadedModels.delete(model);
@@ -443,7 +443,7 @@ export class QuotaManagerService {
    */
   async findBestAvailableModel(
     estimatedTokens: number = 1000,
-    excludeModels: string[] = []
+    excludeModels: string[] = [],
   ): Promise<{
     model: GeminiModel | null;
     reason?: string;
@@ -470,9 +470,7 @@ export class QuotaManagerService {
         );
         return { model };
       } else {
-        this.logger.debug(
-          `⏭️ Skipping ${model}: ${check.reason}`
-        );
+        this.logger.debug(`⏭️ Skipping ${model}: ${check.reason}`);
       }
     }
 
