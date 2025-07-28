@@ -1,4 +1,13 @@
-import { Controller, Get, Post, Body, Param } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Post,
+  Body,
+  Param,
+  Res,
+  Redirect,
+} from '@nestjs/common';
+import { Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ApiService } from './api.service';
@@ -164,5 +173,14 @@ export class ApiController {
       currentTier: this.quotaManager['currentTier'],
       timestamp: new Date().toISOString(),
     };
+  }
+}
+
+@Controller()
+export class RootController {
+  @Get()
+  @Redirect('/admin', 302)
+  redirectToAdmin() {
+    // This method will redirect all requests to '/' to '/admin'
   }
 }

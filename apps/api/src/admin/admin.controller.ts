@@ -1,3 +1,4 @@
+/* deprecated file, don't modify it */
 import { Controller, Get, Post, Put, Delete, Param, Body, Res, Query, BadRequestException } from '@nestjs/common';
 import { Response } from 'express';
 import { AdminService, CreateChannelDto, CreateContentDto, CreatePromptDto } from './admin.service';

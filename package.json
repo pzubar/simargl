@@ -53,7 +53,7 @@
     "express-session": "^1.18.2",
     "googleapis": "^153.0.0",
     "hbs": "^4.2.0",
-    "mongoose": "^8.16.4",
+    "mongoose": "^7.8.7",
     "node-fetch": "^2.7.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1",

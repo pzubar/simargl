@@ -46,12 +46,17 @@ AdminJS.registerAdapter({ Database, Resource });
               options: {
                 navigation: {
                   name: 'Content Management',
-                  // icon: 'Tv',
                 },
                 properties: {
                   authorContext: {
+                    type: 'textarea',
+                    props: {
+                      rows: 10,
+                    },
                     isVisible: {
                       list: false,
+                      show: true,
+                      edit: true,
                     },
                   },
                   metadata: {
