@@ -1,9 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { ConfigService } from '@nestjs/config';
 import { google } from 'googleapis';
 import { Prompt } from '../schemas/prompt.schema';
+import { VideoChunk as VideoChunkModel } from '../schemas/video-chunk.schema';
 import { GoogleGenAI } from '@google/genai';
 import {
   QuotaManagerService,
@@ -90,6 +91,7 @@ export class VideoAnalysisService {
   constructor(
     private configService: ConfigService,
     @InjectModel(Prompt.name) private promptModel: Model<Prompt>,
+    @InjectModel(VideoChunkModel.name) private videoChunkModel: Model<VideoChunkModel>,
     private quotaManager: QuotaManagerService,
   ) {
     const geminiApiKey = this.configService.get<string>('GEMINI_API_KEY');
@@ -104,15 +106,6 @@ export class VideoAnalysisService {
     this.genAI = new GoogleGenAI({
       apiKey: geminiApiKey,
     });
-    // this.model = this.genAI.getGenerativeModel({
-    //   model: "gemini-2.5-flash",
-    //   generationConfig: {
-    //     temperature: 0.1, // Low temperature for consistent analysis
-    //     topP: 0.8,
-    //     topK: 40,
-    //     maxOutputTokens: 8192, // Increased for more detailed analysis
-    //   },
-    // });
 
     // Initialize YouTube API if key is available
     if (youtubeApiKey) {
@@ -572,10 +565,6 @@ export class VideoAnalysisService {
             responseMimeType: 'application/json', // Required for structured output
             responseSchema: VideoAnalysisResponseSchema, // Official structured output schema
             temperature: 0.1, // Low temperature for consistency
-            // maxOutputTokens: Math.min(
-            //   quotaLimits.maxTokensPerRequest || 4096,
-            //   4096,
-            // ), // Respect quota limits
           };
 
           const contents = [
@@ -622,15 +611,6 @@ export class VideoAnalysisService {
                 this.logger.log(
                   `📄 Received ${chunkCount} response chunks (${analysisText.length} chars)`,
                 );
-              }
-
-              // Memory safety: limit response size
-              if (analysisText.length > 50000) {
-                // 50KB limit
-                this.logger.warn(
-                  `⚠️ Response too large, truncating at ${analysisText.length} chars`,
-                );
-                break;
               }
             }
           }
@@ -688,7 +668,8 @@ export class VideoAnalysisService {
           // Clear variables to help with garbage collection
           analysisText = null;
 
-          return {
+          // Create and save the chunk result to database
+          const chunkResult = {
             chunk, // Return the VideoChunk object (not chunkAnalysis string)
             analysis,
             processingTime,
@@ -696,6 +677,8 @@ export class VideoAnalysisService {
             modelUsed: model,
             isModelOverloaded: false,
           };
+
+          return chunkResult;
         } catch (error) {
           lastError = error;
           isOverloadedError = this.isModelOverloadedError(error);
@@ -791,259 +774,218 @@ export class VideoAnalysisService {
   }
 
   /**
-   * Combine analysis results from multiple chunks
+   * Save chunk analysis result to database
    */
-  combineChunkAnalyses(
-    chunkResults: ChunkAnalysisResult[],
+  private async saveChunkToDatabase(
+    contentId: Types.ObjectId | string,
+    chunkResult: ChunkAnalysisResult,
+    prompt: Prompt,
+  ): Promise<VideoChunkModel> {
+    try {
+      const chunkData = {
+        contentId: new Types.ObjectId(contentId),
+        chunkIndex: chunkResult.chunk.chunkIndex,
+        startTime: chunkResult.chunk.startTime,
+        endTime: chunkResult.chunk.endTime,
+        duration: chunkResult.chunk.duration,
+        status: chunkResult.success ? 'ANALYZED' : (chunkResult.isModelOverloaded ? 'OVERLOADED' : 'FAILED'),
+        analysisResult: chunkResult.success ? chunkResult.analysis : undefined,
+        modelUsed: chunkResult.modelUsed,
+        processingTime: chunkResult.processingTime,
+        error: chunkResult.error,
+        promptIdUsed: prompt._id,
+        promptVersionUsed: prompt.version,
+      };
+
+      const savedChunk = await this.videoChunkModel.create(chunkData);
+      this.logger.log(
+        `💾 Saved chunk ${chunkResult.chunk.chunkIndex + 1} to database with status: ${chunkData.status}`,
+      );
+      return savedChunk;
+    } catch (error) {
+      this.logger.error(
+        `❌ Failed to save chunk ${chunkResult.chunk.chunkIndex + 1} to database: ${error.message}`,
+      );
+      throw error;
+    }
+  }
+
+  /**
+   * Combine analysis results from chunks stored in database using Gemini AI
+   */
+  async combineChunkAnalysesUsingAI(
+    contentId: Types.ObjectId | string,
     videoInfo: any,
-  ): CombinedAnalysisResult {
-    const successfulResults = chunkResults.filter((r) => r.success);
-    const failedResults = chunkResults.filter((r) => !r.success);
+    forceModel?: string,
+  ): Promise<VideoAnalysisResponse> {
+    this.logger.log(`🤖 Starting AI-powered combination of chunk analyses for content: ${contentId}`);
+    
+    try {
+      // 1. Fetch all successful chunk analyses from database
+      const chunks = await this.videoChunkModel
+        .find({
+          contentId: new Types.ObjectId(contentId),
+          status: 'ANALYZED',
+          analysisResult: { $exists: true, $ne: null },
+        })
+        .sort({ chunkIndex: 1 })
+        .exec();
 
-    if (successfulResults.length === 0) {
-      throw new Error('No chunks were successfully analyzed');
+      if (chunks.length === 0) {
+        throw new Error('No successful chunk analyses found in database');
+      }
+
+      this.logger.log(`📊 Found ${chunks.length} successful chunk analyses to combine`);
+
+      // 2. Get combination prompt from database
+      const combinerPrompt = await this.promptModel
+        .findOne({ promptName: 'Chunk Analysis Combiner' })
+        .sort({ version: -1 })
+        .exec();
+
+      if (!combinerPrompt) {
+        throw new Error('Chunk Analysis Combiner prompt not found in database');
+      }
+
+      this.logger.log(`✅ Using combiner prompt: "${combinerPrompt.promptName}" (v${combinerPrompt.version})`);
+
+      // 3. Prepare chunk analyses data for the AI prompt
+      const chunkAnalysesJson = chunks.map((chunk, index) => ({
+        chunkIndex: chunk.chunkIndex,
+        timeRange: `${Math.round(chunk.startTime / 60)}:${String(chunk.startTime % 60).padStart(2, '0')} - ${Math.round(chunk.endTime / 60)}:${String(chunk.endTime % 60).padStart(2, '0')}`,
+        analysis: chunk.analysisResult,
+        modelUsed: chunk.modelUsed,
+      }));
+
+      // 4. Construct the combination prompt
+      const combinationPrompt = this.constructCombinationPrompt(
+        combinerPrompt.promptTemplate,
+        chunkAnalysesJson,
+        videoInfo,
+        chunks.length,
+      );
+
+      // 5. Select model for combination task
+      const textPromptTokens = this.quotaManager.estimateTokenCount(combinationPrompt);
+      // Combination doesn't include video processing, so only text tokens
+      const estimatedTokens = textPromptTokens;
+
+      let model: string = '';
+      if (forceModel) {
+        model = forceModel;
+        this.logger.log(`🎯 Using forced model for combination: ${model}`);
+      } else {
+        const modelSelection = await this.quotaManager.findBestAvailableModel(estimatedTokens);
+        if (!modelSelection.model) {
+          throw new Error(`No available models for combination: ${modelSelection.reason}`);
+        }
+        model = modelSelection.model;
+      }
+
+      this.logger.log(`🚀 Combining analyses using ${model} with ${estimatedTokens} estimated tokens`);
+
+      // 6. Call Gemini API to combine the analyses
+      const config = {
+        responseMimeType: 'application/json',
+        responseSchema: VideoAnalysisResponseSchema,
+        temperature: 0.1,
+      };
+
+      const contents = [
+        {
+          role: 'user',
+          parts: [
+            {
+              text: combinationPrompt,
+            },
+          ],
+        },
+      ];
+
+      const response = await this.genAI.models.generateContentStream({
+        model,
+        config,
+        contents,
+      });
+
+      let combinedAnalysisText = '';
+      let chunkCount = 0;
+
+      for await (const streamChunk of response) {
+        if (streamChunk.text) {
+          combinedAnalysisText += streamChunk.text;
+          chunkCount++;
+
+          if (chunkCount % 10 === 0) {
+            this.logger.log(`📄 Received ${chunkCount} response chunks for combination`);
+          }
+        }
+      }
+
+      this.logger.log(`📄 Final combination response: ${combinedAnalysisText.length} chars from ${chunkCount} chunks`);
+
+      // 7. Parse and validate the combined result
+      let combinedAnalysis: VideoAnalysisResponse;
+      try {
+        combinedAnalysis = JSON.parse(combinedAnalysisText) as VideoAnalysisResponse;
+        this.logger.log(`✅ AI successfully combined ${chunks.length} chunk analyses`);
+
+        // Validate structure
+        if (!combinedAnalysis.metadata || !combinedAnalysis.stance_and_thesis || !combinedAnalysis.classification) {
+          throw new Error('Combined response missing required structured output fields');
+        }
+      } catch (parseError) {
+        this.logger.error(`❌ AI combination parsing failed: ${parseError.message}`);
+        this.logger.warn(`Response content: ${combinedAnalysisText.substring(0, 500)}...`);
+        throw new Error(`AI combination parsing failed: ${parseError.message}`);
+      }
+
+      // 8. Record quota usage
+      const actualTokens = this.quotaManager.estimateTokenCount(combinedAnalysisText) + estimatedTokens;
+      this.quotaManager.recordRequest(model, actualTokens);
+
+      this.logger.log(`🎉 AI-powered combination completed successfully using ${model}`);
+      
+      return combinedAnalysis;
+    } catch (error) {
+      this.logger.error(`❌ AI-powered combination failed: ${error.message}`);
+      throw error;
     }
+  }
 
-    this.logger.log(
-      `Combining ${successfulResults.length} successful analyses (${failedResults.length} failed)`,
-    );
+  /**
+   * Construct prompt for AI-powered combination
+   */
+  private constructCombinationPrompt(
+    template: string,
+    chunkAnalyses: any[],
+    videoInfo: any,
+    totalChunks: number,
+  ): string {
+    let populatedPrompt = template;
 
-    // Initialize combined result structure
-    const combined: CombinedAnalysisResult = {
-      metadata: {
-        primary_language: '',
-        hosts_or_speakers: [],
-        video_duration: Math.round(videoInfo.duration || 0),
-        total_chunks: chunkResults.length,
-        processing_summary: {
-          successful_chunks: successfulResults.length,
-          failed_chunks: failedResults.length,
-          total_processing_time: chunkResults.reduce(
-            (sum, r) => sum + r.processingTime,
-            0,
-          ),
-        },
-      },
-      stance_and_thesis: {
-        russo_ukrainian_war_stance: 'Not Applicable',
-        main_thesis: '',
-        key_messages: [],
-      },
-      narrative_analysis: {
-        primary_narrative_frame: '',
-        secondary_narrative_frames: [],
-        narrative_characters: {
-          heroes: [],
-          villains: [],
-          victims: [],
-        },
-        plot_summary: '',
-      },
-      rhetorical_and_emotional_analysis: {
-        speaker_tone_and_style: '',
-        emotional_appeals: [],
-        rhetorical_devices_and_fallacies: '',
-        loaded_language_and_keywords: [],
-        call_to_action: {
-          cta_type: 'None',
-          cta_text: '',
-        },
-      },
-      visual_analysis: {
-        editing_style_and_pacing: '',
-        on_screen_elements: '',
-        speaker_non_verbal_cues: '',
-      },
-      source_and_evidence_analysis: {
-        unverifiable_claims: [],
-        source_integrity: '',
-      },
-      entity_and_topic_indexing: {
-        named_entities: [],
-        key_concepts_and_themes: [],
-      },
-      classification: {
-        is_manipulative: {
-          decision: 'false',
-          confidence: 0.5,
-          reasoning: '',
-        },
-        is_disinformation: {
-          decision: 'false',
-          confidence: 0.5,
-          reasoning: '',
-        },
-      },
+    // Format chunk analyses as JSON string for the prompt
+    const chunkAnalysesText = JSON.stringify(chunkAnalyses, null, 2);
+
+    const replacements = {
+      '{{chunk_analyses}}': chunkAnalysesText,
+      '{{video.title}}': videoInfo.title || 'Unknown',
+      '{{video.channel}}': videoInfo.channel || 'Unknown',
+      '{{video.duration}}': Math.round((videoInfo.duration || 0) / 60),
+      '{{chunk.total}}': totalChunks,
     };
 
-    // Combine metadata
-    const languages = new Set<string>();
-    const speakers = new Set<string>();
-
-    successfulResults.forEach((result) => {
-      if (result.analysis.metadata?.primary_language) {
-        languages.add(result.analysis.metadata.primary_language);
-      }
-      if (result.analysis.metadata?.hosts_or_speakers) {
-        result.analysis.metadata.hosts_or_speakers.forEach((speaker: string) =>
-          speakers.add(speaker),
+    // Replace placeholders with actual values
+    for (const [placeholder, value] of Object.entries(replacements)) {
+      if (value !== null && value !== undefined) {
+        populatedPrompt = populatedPrompt.replace(
+          new RegExp(placeholder.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'),
+          String(value),
         );
       }
-    });
-
-    combined.metadata.primary_language = Array.from(languages)[0] || '';
-    combined.metadata.hosts_or_speakers = Array.from(speakers);
-
-    // Combine stance and thesis (use most common or first non-empty)
-    const stances = successfulResults
-      .map((r) => r.analysis.stance_and_thesis?.russo_ukrainian_war_stance)
-      .filter(Boolean);
-    combined.stance_and_thesis.russo_ukrainian_war_stance =
-      this.getMostCommon(stances) || 'Not Applicable';
-
-    const theses = successfulResults
-      .map((r) => r.analysis.stance_and_thesis?.main_thesis)
-      .filter(Boolean);
-    combined.stance_and_thesis.main_thesis = theses[0] || '';
-
-    // Combine key messages
-    const allKeyMessages = new Set<string>();
-    successfulResults.forEach((result) => {
-      if (result.analysis.stance_and_thesis?.key_messages) {
-        result.analysis.stance_and_thesis.key_messages.forEach((msg: string) =>
-          allKeyMessages.add(msg),
-        );
-      }
-    });
-    combined.stance_and_thesis.key_messages = Array.from(allKeyMessages);
-
-    // Combine narrative analysis
-    const narrativeFrames = successfulResults
-      .map((r) => r.analysis.narrative_analysis?.primary_narrative_frame)
-      .filter(Boolean);
-    combined.narrative_analysis.primary_narrative_frame =
-      this.getMostCommon(narrativeFrames) || '';
-
-    const allSecondaryFrames = new Set<string>();
-    successfulResults.forEach((result) => {
-      if (result.analysis.narrative_analysis?.secondary_narrative_frames) {
-        result.analysis.narrative_analysis.secondary_narrative_frames.forEach(
-          (frame: string) => allSecondaryFrames.add(frame),
-        );
-      }
-    });
-    combined.narrative_analysis.secondary_narrative_frames =
-      Array.from(allSecondaryFrames);
-
-    // Combine characters
-    const allHeroes = new Set<string>();
-    const allVillains = new Set<string>();
-    const allVictims = new Set<string>();
-
-    successfulResults.forEach((result) => {
-      if (result.analysis.narrative_analysis?.narrative_characters) {
-        const chars = result.analysis.narrative_analysis.narrative_characters;
-        chars.heroes?.forEach((hero: string) => allHeroes.add(hero));
-        chars.villains?.forEach((villain: string) => allVillains.add(villain));
-        chars.victims?.forEach((victim: string) => allVictims.add(victim));
-      }
-    });
-
-    combined.narrative_analysis.narrative_characters = {
-      heroes: Array.from(allHeroes),
-      villains: Array.from(allVillains),
-      victims: Array.from(allVictims),
-    };
-
-    // Combine plot summaries
-    const plotSummaries = successfulResults
-      .map((r) => r.analysis.narrative_analysis?.plot_summary)
-      .filter(Boolean);
-    combined.narrative_analysis.plot_summary = plotSummaries.join(' ') || '';
-
-    // Combine rhetorical analysis
-    const tones = successfulResults
-      .map(
-        (r) =>
-          r.analysis.rhetorical_and_emotional_analysis?.speaker_tone_and_style,
-      )
-      .filter(Boolean);
-    combined.rhetorical_and_emotional_analysis.speaker_tone_and_style =
-      tones[0] || '';
-
-    const allEmotionalAppeals = new Set<string>();
-    const allLoadedLanguage = new Set<string>();
-
-    successfulResults.forEach((result) => {
-      if (
-        result.analysis.rhetorical_and_emotional_analysis?.emotional_appeals
-      ) {
-        result.analysis.rhetorical_and_emotional_analysis.emotional_appeals.forEach(
-          (appeal: string) => allEmotionalAppeals.add(appeal),
-        );
-      }
-      if (
-        result.analysis.rhetorical_and_emotional_analysis
-          ?.loaded_language_and_keywords
-      ) {
-        result.analysis.rhetorical_and_emotional_analysis.loaded_language_and_keywords.forEach(
-          (keyword: string) => allLoadedLanguage.add(keyword),
-        );
-      }
-    });
-
-    combined.rhetorical_and_emotional_analysis.emotional_appeals =
-      Array.from(allEmotionalAppeals);
-    combined.rhetorical_and_emotional_analysis.loaded_language_and_keywords =
-      Array.from(allLoadedLanguage);
-
-    // Combine entities and topics
-    const allEntities = new Set<string>();
-    const allConcepts = new Set<string>();
-
-    successfulResults.forEach((result) => {
-      if (result.analysis.entity_and_topic_indexing?.named_entities) {
-        result.analysis.entity_and_topic_indexing.named_entities.forEach(
-          (entity: string) => allEntities.add(entity),
-        );
-      }
-      if (result.analysis.entity_and_topic_indexing?.key_concepts_and_themes) {
-        result.analysis.entity_and_topic_indexing.key_concepts_and_themes.forEach(
-          (concept: string) => allConcepts.add(concept),
-        );
-      }
-    });
-
-    combined.entity_and_topic_indexing.named_entities = Array.from(allEntities);
-    combined.entity_and_topic_indexing.key_concepts_and_themes =
-      Array.from(allConcepts);
-
-    // Combine classifications (use highest confidence scores)
-    const manipulativeAnalyses = successfulResults
-      .map((r) => r.analysis.classification?.is_manipulative)
-      .filter(Boolean);
-    const disinformationAnalyses = successfulResults
-      .map((r) => r.analysis.classification?.is_disinformation)
-      .filter(Boolean);
-
-    if (manipulativeAnalyses.length > 0) {
-      const highestConfidenceManipulative = manipulativeAnalyses.reduce(
-        (max, current) => (current.confidence > max.confidence ? current : max),
-      );
-      combined.classification.is_manipulative = highestConfidenceManipulative;
     }
 
-    if (disinformationAnalyses.length > 0) {
-      const highestConfidenceDisinfo = disinformationAnalyses.reduce(
-        (max, current) => (current.confidence > max.confidence ? current : max),
-      );
-      combined.classification.is_disinformation = highestConfidenceDisinfo;
-    }
-
-    this.logger.log(
-      `Successfully combined analysis from ${successfulResults.length} chunks`,
-    );
-    return combined;
+    return populatedPrompt;
   }
 
   /**
@@ -1114,6 +1056,7 @@ export class VideoAnalysisService {
    */
   async analyzeYouTubeVideo(
     youtubeUrl: string,
+    contentId: Types.ObjectId | string,
     existingMetadata?: any,
     forceModel?: string,
   ): Promise<any> {
@@ -1171,7 +1114,7 @@ export class VideoAnalysisService {
       // Log optimization recommendations
       this.logOptimizationRecommendations(duration, info.title);
 
-      // 4. Analyze each chunk
+      // 4. Analyze each chunk and save to database
       this.logger.log(`🔄 Starting analysis of ${chunks.length} chunk(s)...`);
       const chunkResults: ChunkAnalysisResult[] = [];
 
@@ -1185,6 +1128,14 @@ export class VideoAnalysisService {
         );
         chunkResults.push(result);
 
+        // Save chunk result to database
+        try {
+          await this.saveChunkToDatabase(contentId, result, prompt);
+        } catch (saveError) {
+          this.logger.error(`⚠️ Failed to save chunk ${chunk.chunkIndex + 1} to database: ${saveError.message}`);
+          // Continue processing even if database save fails
+        }
+
         if (result.success) {
           this.logger.log(
             `✅ Chunk ${chunk.chunkIndex + 1}/${chunks.length} completed successfully`,
@@ -1196,9 +1147,9 @@ export class VideoAnalysisService {
         }
       }
 
-      // 5. Combine results
-      this.logger.log('🔗 Combining chunk analyses...');
-      const combinedResult = this.combineChunkAnalyses(chunkResults, info);
+      // 5. Combine results using AI
+      this.logger.log('🤖 Combining chunk analyses using AI...');
+      const combinedResult = await this.combineChunkAnalysesUsingAI(contentId, info, forceModel);
 
       const totalProcessingTime = Date.now() - overallStartTime;
       const successfulChunks = chunkResults.filter((r) => r.success).length;

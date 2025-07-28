@@ -120,6 +120,137 @@ async function bootstrap() {
       isDefault: true,
       description: 'Default prompt for analyzing YouTube video content.',
     },
+    {
+      promptName: 'Chunk Analysis Combiner',
+      version: 1,
+      promptTemplate: `
+<persona>
+You are an expert AI analyst specializing in combining and synthesizing multiple video analysis results into a single comprehensive analysis. Your task is to intelligently merge analysis results from different video chunks while maintaining analytical accuracy and coherence.
+</persona>
+
+<task_definition>
+You are provided with multiple individual analysis results from different chunks of the same video. Your task is to combine these analyses into a single, comprehensive result that represents the overall video content.
+
+<combination_instructions>
+1. **Metadata**: Choose the most common or representative values across chunks
+2. **Stance and Thesis**: Identify the overall stance and synthesize key messages from all chunks
+3. **Narrative Analysis**: Combine narrative elements, ensuring all characters and frames are represented
+4. **Rhetorical Analysis**: Merge emotional appeals and rhetorical devices from all chunks
+5. **Visual Analysis**: Synthesize visual observations across the entire video
+6. **Evidence Analysis**: Combine all unverifiable claims and assess overall source integrity
+7. **Entity Indexing**: Merge all named entities and key concepts
+8. **Classification**: Make overall decisions based on the combined evidence from all chunks
+
+For arrays, deduplicate similar items and maintain comprehensiveness.
+For text fields, synthesize information to represent the overall video.
+For confidence scores, base them on the combined evidence across all chunks.
+</combination_instructions>
+</task_definition>
+
+<context_input>
+The following are individual analysis results from different chunks of the same video:
+
+{{chunk_analyses}}
+
+Video metadata:
+- Total duration: {{video.duration}} minutes
+- Total chunks analyzed: {{chunk.total}}
+- Video title: {{video.title}}
+- Channel: {{video.channel}}
+</context_input>
+
+<output_format>
+Your final response MUST be a single, valid JSON object and nothing else.
+- Do not provide any text, explanation, or markdown formatting outside of the JSON object.
+- Use the exact same schema as the individual chunk analyses.
+- Ensure all information from the chunks is appropriately synthesized.
+- For any fields where no information is available across all chunks, use appropriate defaults (empty strings, empty arrays, or null).
+</output_format>
+
+<json_schema_example>
+{
+  "metadata": {
+    "primary_language": "Most common language across chunks",
+    "hosts_or_speakers": [
+      "All unique speakers identified across chunks"
+    ]
+  },
+  "stance_and_thesis": {
+    "russo_ukrainian_war_stance": "Overall stance based on all chunks",
+    "main_thesis": "Synthesized main thesis representing the entire video",
+    "key_messages": [
+      "All unique key messages from all chunks"
+    ]
+  },
+  "narrative_analysis": {
+    "primary_narrative_frame": "Most prominent narrative frame across the video",
+    "secondary_narrative_frames": [
+      "All secondary frames mentioned across chunks"
+    ],
+    "narrative_characters": {
+      "heroes": [
+        "All unique heroes identified across chunks"
+      ],
+      "villains": [
+        "All unique villains identified across chunks"
+      ],
+      "victims": [
+        "All unique victims identified across chunks"
+      ]
+    },
+    "plot_summary": "Comprehensive plot summary synthesized from all chunks"
+  },
+  "rhetorical_and_emotional_analysis": {
+    "speaker_tone_and_style": "Overall tone and style assessment",
+    "emotional_appeals": [
+      "All unique emotional appeals from all chunks"
+    ],
+    "rhetorical_devices_and_fallacies": "Combined rhetorical analysis",
+    "loaded_language_and_keywords": [
+      "All unique loaded language examples from all chunks"
+    ],
+    "call_to_action": {
+      "cta_type": "Primary call to action type for the video",
+      "cta_text": "Main call to action text"
+    }
+  },
+  "visual_analysis": {
+    "editing_style_and_pacing": "Overall editing style assessment",
+    "on_screen_elements": "Combined description of visual elements",
+    "speaker_non_verbal_cues": "Overall assessment of speaker behavior"
+  },
+  "source_and_evidence_analysis": {
+    "unverifiable_claims": [
+      "All unique unverifiable claims from all chunks"
+    ],
+    "source_integrity": "Overall source integrity assessment"
+  },
+  "entity_and_topic_indexing": {
+    "named_entities": [
+      "All unique named entities from all chunks"
+    ],
+    "key_concepts_and_themes": [
+      "All unique concepts and themes from all chunks"
+    ]
+  },
+  "classification": {
+    "is_manipulative": {
+      "decision": "true or false based on combined evidence",
+      "confidence": 0.95,
+      "reasoning": "Reasoning based on evidence from all chunks"
+    },
+    "is_disinformation": {
+      "decision": "true or false based on combined evidence",
+      "confidence": 0.80,
+      "reasoning": "Reasoning based on evidence from all chunks"
+    }
+  }
+}
+</json_schema_example>
+`,
+      isDefault: false,
+      description: 'Prompt for combining individual chunk analysis results into a comprehensive video analysis.',
+    },
   ];
 
   for (const promptData of prompts) {

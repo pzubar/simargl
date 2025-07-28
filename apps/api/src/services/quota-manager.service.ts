@@ -267,17 +267,6 @@ export class QuotaManagerService {
       };
     }
 
-    // Check max tokens per request
-    // if (
-    //   limits.maxTokensPerRequest &&
-    //   estimatedTokens > limits.maxTokensPerRequest
-    // ) {
-    //   return {
-    //     allowed: false,
-    //     reason: `Request too large (${estimatedTokens}/${limits.maxTokensPerRequest} tokens)`,
-    //   };
-    // }
-
     return { allowed: true };
   }
 

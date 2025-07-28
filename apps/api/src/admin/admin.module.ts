@@ -6,6 +6,7 @@ import { componentLoader, Components } from './components';
 import { Channel, ChannelSchema } from '../schemas/channel.schema';
 import { Content, ContentSchema } from '../schemas/content.schema';
 import { Prompt, PromptSchema } from '../schemas/prompt.schema';
+import { VideoChunk, VideoChunkSchema } from '../schemas/video-chunk.schema';
 import { AdminModule as AdminJSModule } from '@adminjs/nestjs';
 import AdminJS from 'adminjs';
 import { Database, Resource } from '@adminjs/mongoose';
@@ -20,6 +21,7 @@ AdminJS.registerAdapter({ Database, Resource });
       { name: Channel.name, schema: ChannelSchema },
       { name: Content.name, schema: ContentSchema },
       { name: Prompt.name, schema: PromptSchema },
+      { name: VideoChunk.name, schema: VideoChunkSchema },
     ]),
     AdminJSModule.createAdminAsync({
       imports: [
@@ -27,12 +29,14 @@ AdminJS.registerAdapter({ Database, Resource });
           { name: Channel.name, schema: ChannelSchema },
           { name: Content.name, schema: ContentSchema },
           { name: Prompt.name, schema: PromptSchema },
+          { name: VideoChunk.name, schema: VideoChunkSchema },
         ]),
       ],
       useFactory: (
         channelModel: Model<Channel>,
         contentModel: Model<Content>,
         promptModel: Model<Prompt>,
+        videoChunkModel: Model<VideoChunk>,
       ) => ({
         adminJsOptions: {
           rootPath: '/admin',
@@ -202,8 +206,8 @@ AdminJS.registerAdapter({ Database, Resource });
                     },
                     description: 'Prompt version',
                   },
-                                      'analysis.result': {
-                      type: 'string',
+                  'analysis.result': {
+                      type: 'mixed',
                       isVisible: {
                         list: false,
                         show: true,
@@ -318,14 +322,14 @@ AdminJS.registerAdapter({ Database, Resource });
                         });
 
                         if (response.ok) {
-                          const result = await response.json();
-                          return {
-                            notice: {
-                              message: `Analysis started with ${selectedModel}! Job ID: ${result?.jobId || 'N/A'}`,
-                              type: 'success',
-                            },
-                            record: record.toJSON(context.currentAdmin),
-                          };
+                                                  const result = await response.json() as any;
+                        return {
+                          notice: {
+                            message: `Analysis started with ${selectedModel}! Job ID: ${result?.jobId || 'N/A'}`,
+                            type: 'success',
+                          },
+                          record: record.toJSON(context.currentAdmin),
+                        };
                         } else {
                           const errorText = await response.text();
                           throw new Error(errorText);
@@ -386,6 +390,191 @@ AdminJS.registerAdapter({ Database, Resource });
                 },
               },
             },
+            {
+              resource: videoChunkModel,
+              options: {
+                navigation: {
+                  name: 'Analysis Details',
+                  icon: 'Layers',
+                },
+                properties: {
+                  contentId: {
+                    reference: 'Content',
+                    isVisible: {
+                      list: true,
+                      show: true,
+                      edit: false,
+                      filter: true,
+                    },
+                    description: 'Related content item',
+                  },
+                  chunkIndex: {
+                    isVisible: {
+                      list: true,
+                      show: true,
+                      edit: false,
+                      filter: true,
+                    },
+                    description: 'Chunk sequence number',
+                  },
+                  startTime: {
+                    type: 'number',
+                    isVisible: {
+                      list: true,
+                      show: true,
+                      edit: false,
+                      filter: false,
+                    },
+                    description: 'Start time in seconds',
+                    custom: {
+                      format: (value) => {
+                        if (!value && value !== 0) return 'Unknown';
+                        const minutes = Math.floor(value / 60);
+                        const seconds = value % 60;
+                        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                      },
+                    },
+                  },
+                  endTime: {
+                    type: 'number',
+                    isVisible: {
+                      list: true,
+                      show: true,
+                      edit: false,
+                      filter: false,
+                    },
+                    description: 'End time in seconds',
+                    custom: {
+                      format: (value) => {
+                        if (!value && value !== 0) return 'Unknown';
+                        const minutes = Math.floor(value / 60);
+                        const seconds = value % 60;
+                        return `${minutes}:${seconds.toString().padStart(2, '0')}`;
+                      },
+                    },
+                  },
+                  duration: {
+                    type: 'number',
+                    isVisible: {
+                      list: true,
+                      show: true,
+                      edit: false,
+                      filter: false,
+                    },
+                    description: 'Chunk duration in seconds',
+                    custom: {
+                      format: (value) => {
+                        if (!value) return 'Unknown';
+                        const minutes = Math.floor(value / 60);
+                        const seconds = value % 60;
+                        return `${minutes}m ${seconds}s`;
+                      },
+                    },
+                  },
+                  status: {
+                    availableValues: [
+                      { value: 'PENDING', label: 'Pending' },
+                      { value: 'PROCESSING', label: 'Processing' },
+                      { value: 'ANALYZED', label: 'Analyzed' },
+                      { value: 'FAILED', label: 'Failed' },
+                      { value: 'OVERLOADED', label: 'Model Overloaded' },
+                    ],
+                    isVisible: {
+                      list: true,
+                      show: true,
+                      edit: false,
+                      filter: true,
+                    },
+                  },
+                  modelUsed: {
+                    isVisible: {
+                      list: true,
+                      show: true,
+                      edit: false,
+                      filter: true,
+                    },
+                    description: 'AI model used for this chunk',
+                  },
+                  processingTime: {
+                    type: 'number',
+                    isVisible: {
+                      list: false,
+                      show: true,
+                      edit: false,
+                      filter: false,
+                    },
+                    description: 'Processing time in milliseconds',
+                    custom: {
+                      format: (value) => {
+                        if (!value) return 'Unknown';
+                        return `${value}ms`;
+                      },
+                    },
+                  },
+                  analysisResult: {
+                    type: 'mixed',
+                    isVisible: {
+                      list: false,
+                      show: true,
+                      edit: false,
+                      filter: false,
+                    },
+                    description: 'Raw analysis result from AI model',
+                    components: {
+                      show: Components.AnalysisDisplay,
+                    },
+                  },
+                  error: {
+                    type: 'textarea',
+                    isVisible: {
+                      list: false,
+                      show: true,
+                      edit: false,
+                      filter: false,
+                    },
+                    description: 'Error message if analysis failed',
+                  },
+                  promptVersionUsed: {
+                    isVisible: {
+                      list: false,
+                      show: true,
+                      edit: false,
+                      filter: false,
+                    },
+                    description: 'Prompt version used for analysis',
+                  },
+                  createdAt: {
+                    type: 'datetime',
+                    isVisible: {
+                      list: false,
+                      show: true,
+                      edit: false,
+                      filter: false,
+                    },
+                  },
+                  updatedAt: {
+                    type: 'datetime',
+                    isVisible: {
+                      list: false,
+                      show: true,
+                      edit: false,
+                      filter: false,
+                    },
+                  },
+                },
+                actions: {
+                  new: {
+                    isVisible: false, // Chunks are created automatically
+                  },
+                  edit: {
+                    isVisible: false, // Chunks should not be manually edited
+                  },
+                  delete: {
+                    isVisible: true, // Allow deletion for cleanup
+                  },
+                },
+              },
+            },
           ],
           branding: {
             companyName: 'Simargl',
@@ -401,6 +590,7 @@ AdminJS.registerAdapter({ Database, Resource });
                 Channel: 'Channels',
                 Content: 'Content Items',
                 Prompt: 'AI Prompts',
+                VideoChunk: 'Video Chunks',
               },
               buttons: {
                 save: 'Save Changes',
@@ -416,6 +606,7 @@ AdminJS.registerAdapter({ Database, Resource });
         getModelToken(Channel.name),
         getModelToken(Content.name),
         getModelToken(Prompt.name),
+        getModelToken(VideoChunk.name),
       ],
     }),
     BullModule.registerQueue({ name: 'channel-poll' }),

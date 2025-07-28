@@ -17,14 +17,14 @@ GEMINI_TIER=free  # Options: free, tier1, tier2, tier3
 ## Quota Limits by Tier
 
 ### Free Tier (`GEMINI_TIER=free`)
-- **gemini-2.5-flash**: 10 RPM, 250K TPM, 250 RPD, 4K max tokens/request
-- **gemini-2.5-pro**: 5 RPM, 250K TPM, 100 RPD, 4K max tokens/request  
-- **gemini-2.0-flash-exp**: 15 RPM, 1M TPM, 200 RPD, 4K max tokens/request
+- **gemini-2.5-flash**: 10 RPM, 250K TPM, 250 RPD
+- **gemini-2.5-pro**: 5 RPM, 250K TPM, 100 RPD  
+- **gemini-2.0-flash-exp**: 15 RPM, 1M TPM, 200 RPD
 
 ### Tier 1 (`GEMINI_TIER=tier1`)
-- **gemini-2.5-flash**: 2000 RPM, 4M TPM, 8K max tokens/request
-- **gemini-2.5-pro**: 1000 RPM, 4M TPM, 8K max tokens/request
-- **gemini-2.0-flash-exp**: 30000 RPM, 30M TPM, 8K max tokens/request
+- **gemini-2.5-flash**: 2000 RPM, 4M TPM
+- **gemini-2.5-pro**: 1000 RPM, 4M TPM
+- **gemini-2.0-flash-exp**: 30000 RPM, 30M TPM
 
 ### Tier 2+ (`GEMINI_TIER=tier2` or `tier3`)
 - Higher limits for production usage
@@ -35,7 +35,6 @@ GEMINI_TIER=free  # Options: free, tier1, tier2, tier3
 - ✅ **Request Rate Limiting**: Respects RPM (Requests Per Minute) limits
 - ✅ **Token Rate Limiting**: Respects TPM (Tokens Per Minute) limits  
 - ✅ **Daily Limits**: Respects RPD (Requests Per Day) for free tier
-- ✅ **Request Size Limiting**: Respects max tokens per request
 - ✅ **Auto-waiting**: Automatically waits when limits are reached
 - ✅ **Token Estimation**: Estimates token usage before requests
 

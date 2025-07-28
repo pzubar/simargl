@@ -144,6 +144,7 @@ export class AnalysisProcessor extends WorkerHost {
       const analysisResult =
         await this.videoAnalysisService.analyzeYouTubeVideo(
           youtubeUrl,
+          content._id.toString(), // Pass content ID for database operations
           existingMetadata,
           job.data.forceModel, // Pass through forced model if specified
         );

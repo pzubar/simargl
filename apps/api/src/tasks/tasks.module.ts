@@ -6,6 +6,7 @@ import { MongooseModule } from '@nestjs/mongoose';
 import { Channel, ChannelSchema } from '../schemas/channel.schema';  
 import { Content, ContentSchema } from '../schemas/content.schema';  
 import { Prompt, PromptSchema } from '../schemas/prompt.schema';
+import { VideoChunk, VideoChunkSchema } from '../schemas/video-chunk.schema';
 
 // Import Processors  
 import { ChannelPollProcessor } from './channel-poll.processor';  
@@ -24,7 +25,8 @@ import { QuotaManagerService } from '../services/quota-manager.service';
     MongooseModule.forFeature([  
       { name: Channel.name, schema: ChannelSchema },  
       { name: Content.name, schema: ContentSchema },  
-      { name: Prompt.name, schema: PromptSchema },  
+      { name: Prompt.name, schema: PromptSchema },
+      { name: VideoChunk.name, schema: VideoChunkSchema },  
     ]),
     BullModule.registerQueue(  
       { name: 'channel-poll' },  
