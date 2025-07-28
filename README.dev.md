@@ -111,14 +111,54 @@ The application uses BullMQ for background job processing:
 - **Content Analysis**: Video/text analysis jobs
 - **Queue Dashboard**: http://localhost:3333/queues
 
-## Quota Management
+## Enhanced Quota Management
 
-The system includes built-in quota management for AI model usage:
+The system includes enhanced database-backed quota management for AI model usage:
 
-- **Daily Limits**: Configurable per model
-- **Rate Limiting**: Requests per hour/day
-- **Cost Tracking**: Token usage monitoring
-- **Status Endpoint**: `/api/quota/status`
+- **Database-Backed Tracking**: Persistent quota usage across restarts
+- **Intelligent Error Parsing**: Handles Google quota errors (RPM vs RPD)
+- **Automatic Retry Logic**: Different strategies for RPM (retry) vs RPD (stop)
+- **Default Model Selection**: Configurable via environment variable
+- **Enhanced Monitoring**: `/api/quota/status` and `/api/quota/violations`
+- **Model Fallback**: Automatically switches to available models
+
+### Quota Error Handling
+
+- **RPM (Requests Per Minute)**: Will retry after the delay specified by Google
+- **RPD (Requests Per Day)**: Will stop processing for the day to avoid further violations
+- **Overload Errors**: Will temporarily mark models as unavailable and switch to alternatives
+
+## Manual Chunk Management
+
+The system now supports manual control over chunk analysis and combination:
+
+### Admin Interface Actions
+
+In the Content show page, you'll find new action buttons:
+
+- **🧠 Run Analysis**: Start initial chunk analysis
+- **ℹ️ Check Status**: View current chunk completion status (calls API)
+- **📊 Combine Chunks**: Manually trigger combination when chunks are ready (calls API)
+- **🔄 Reset Chunks**: Reset all chunks to pending state for re-analysis (calls API)
+
+Note: Admin actions use HTTP API calls to ensure proper service isolation and reliability.
+
+### API Endpoints
+
+- **GET** `/api/content/:contentId/combination-status` - Check combination readiness
+- **POST** `/api/content/:contentId/trigger-combination` - Manually trigger combination
+- **POST** `/api/content/:contentId/reset-chunks` - Reset chunks for re-analysis
+
+### Combination Logic
+
+- **Automatic**: Triggers when all chunks complete successfully
+- **Manual**: Can be triggered via admin interface or API
+- **Partial**: Supports combination with some failed chunks (manual only)
+- **Status Types**:
+  - `READY`: All chunks completed, can combine
+  - `PARTIAL`: Some chunks failed, can attempt combination
+  - `PROCESSING`: Still analyzing chunks
+  - `NOT_CHUNKED`: Content not yet chunked
 
 ## Environment Variables
 
@@ -133,9 +173,23 @@ REDIS_URL=redis://redis:6379
 
 # Google AI
 GOOGLE_API_KEY=your_google_ai_api_key
+GEMINI_API_KEY=your_gemini_api_key
 
 # YouTube API
 YOUTUBE_API_KEY=your_youtube_api_key
+
+# Gemini Quota Management (Enhanced)
+GEMINI_TIER=free
+# Options: free, tier1, tier2, tier3
+
+# Default Gemini Model (Enhanced)
+GEMINI_DEFAULT_MODEL=gemini-2.5-flash-lite-preview-06-17
+# Options:
+# - gemini-2.5-pro (highest quality, lowest quota)
+# - gemini-2.5-flash (balanced quality and speed)
+# - gemini-2.5-flash-lite-preview-06-17 (fastest, highest quota - RECOMMENDED)
+# - gemini-2.0-flash (good balance)
+# - gemini-2.0-flash-lite (high quota)
 
 # Application
 NODE_ENV=development

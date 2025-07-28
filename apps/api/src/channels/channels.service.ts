@@ -136,4 +136,24 @@ export class ChannelsService {
 
     return channel;
   }
+
+  async triggerManualChannelPoll(
+    channelId: string,
+    fetchLastN?: number,
+  ): Promise<void> {
+    const job = await this.channelPollQueue.add(
+      'poll-channel',
+      {
+        channelId,
+        fetchLastN: fetchLastN, // Pass this to the job if provided
+      },
+      {
+        removeOnComplete: true, // Clean up after completion
+        removeOnFail: true, // Clean up on failure
+      },
+    );
+    console.log(
+      `✅ Manually triggered poll for channel ${channelId}, Job ID: ${job.id}`,
+    );
+  }
 } 

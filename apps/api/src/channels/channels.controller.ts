@@ -39,4 +39,21 @@ export class ChannelsController {
   async deleteChannel(@Param('id') id: string): Promise<void> {
     await this.channelsService.deleteChannel(id);
   }
+
+  @Post(':id/poll')
+  @HttpCode(HttpStatus.ACCEPTED)
+  async pollChannel(
+    @Param('id') id: string,
+    @Body('fetchLastN') fetchLastN?: number,
+  ): Promise<{ message: string }> {
+    try {
+      await this.channelsService.triggerManualChannelPoll(id, fetchLastN);
+      return { message: `Polling job for channel ${id} has been scheduled.` };
+    } catch (error) {
+      throw new HttpException(
+        'Failed to schedule polling job',
+        HttpStatus.INTERNAL_SERVER_ERROR,
+      );
+    }
+  }
 } 

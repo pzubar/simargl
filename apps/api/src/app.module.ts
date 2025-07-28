@@ -7,15 +7,23 @@ import { ChannelsModule } from './channels/channels.module';
 import { AdminModule } from './admin/admin.module';
 import { ApiController, RootController } from './api.controller';
 import { ApiService } from './api.service';
-import { QuotaManagerService } from './services/quota-manager.service';
+import { EnhancedQuotaManagerService as QuotaManagerService } from './services/enhanced-quota-manager.service';
+import { VideoCombinationService } from './services/video-combination.service';
 
 // Import Schemas for global registration
 import { Channel, ChannelSchema } from './schemas/channel.schema';
 import { Content, ContentSchema } from './schemas/content.schema';
 import { Prompt, PromptSchema } from './schemas/prompt.schema';
+import { VideoChunk, VideoChunkSchema } from './schemas/video-chunk.schema';
+import { QuotaUsage, QuotaUsageSchema } from './schemas/quota-usage.schema';
+import {
+  QuotaViolation,
+  QuotaViolationSchema,
+} from './schemas/quota-violation.schema';
 import { BullBoardModule } from '@bull-board/nestjs';
 import { ExpressAdapter } from '@bull-board/express';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
+import { VideoAnalysisService } from './services/video-analysis.service';
 
 @Module({
   imports: [
@@ -36,6 +44,9 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
       { name: Channel.name, schema: ChannelSchema },
       { name: Content.name, schema: ContentSchema },
       { name: Prompt.name, schema: PromptSchema },
+      { name: VideoChunk.name, schema: VideoChunkSchema },
+      { name: QuotaUsage.name, schema: QuotaUsageSchema },
+      { name: QuotaViolation.name, schema: QuotaViolationSchema },
     ]),
 
     // Queue Module (BullMQ)
@@ -56,6 +67,7 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
       { name: 'content-processing' },
       { name: 'metadata-processing' },
       { name: 'analysis' },
+      { name: 'chunk-analysis' },
       { name: 'stats' },
     ),
 
@@ -85,6 +97,11 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
     }),
 
     BullBoardModule.forFeature({
+      name: 'chunk-analysis',
+      adapter: BullMQAdapter,
+    }),
+
+    BullBoardModule.forFeature({
       name: 'stats',
       adapter: BullMQAdapter,
     }),
@@ -95,6 +112,11 @@ import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
     TasksModule,
   ],
   controllers: [ApiController, RootController],
-  providers: [ApiService, QuotaManagerService],
+  providers: [
+    ApiService,
+    QuotaManagerService,
+    VideoAnalysisService,
+    VideoCombinationService,
+  ],
 })
 export class AppModule {}

@@ -149,6 +149,8 @@ export class AnalysisProcessor extends WorkerHost {
           job.data.forceModel, // Pass through forced model if specified
         );
 
+      // todo: Handle case where analysisResult is null or undefined -- now it is completely broken
+      return;
       const { analysis, prompt, modelUsed, modelUsageStats } = analysisResult;
 
       // Check if analysis had overloaded chunks that might benefit from retry

@@ -71,8 +71,7 @@ Response:
       "limits": {
         "rpm": 10,
         "tpm": 250000,
-        "rpd": 250,
-        "maxTokensPerRequest": 4096
+        "rpd": 250
       }
     }
   ],
@@ -134,7 +133,7 @@ The quota manager is automatically integrated into the video analysis pipeline:
    🤖 gemini-2.5-flash: 10 RPM, 250K TPM, 250 RPD
    🤖 gemini-2.5-pro: 5 RPM, 250K TPM, 100 RPD
 
-📊 Estimated tokens: 2500, Max allowed: 4096
+📊 Estimated tokens: 2500
 📊 Quota usage: 3/10 RPM, 7800/250000 TPM
 
 ⏳ Quota limit reached for gemini-2.5-flash. Waiting 45s. Reason: RPM limit exceeded (10/10)

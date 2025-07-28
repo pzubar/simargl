@@ -11,7 +11,11 @@ import { Response } from 'express';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ApiService } from './api.service';
-import { QuotaManagerService } from './services/quota-manager.service';
+import { EnhancedQuotaManagerService as QuotaManagerService } from './services/enhanced-quota-manager.service';
+import { VideoCombinationService } from './services/video-combination.service';
+import { Model } from 'mongoose';
+import { VideoChunk } from 'apps/api/src/schemas/video-chunk.schema';
+import { InjectModel } from '@nestjs/mongoose';
 
 @Controller('api')
 export class ApiController {
@@ -20,6 +24,9 @@ export class ApiController {
     @InjectQueue('content-processing') private contentProcessingQueue: Queue,
     @InjectQueue('channel-poll') private channelPollQueue: Queue,
     private quotaManager: QuotaManagerService,
+    private videoCombinationService: VideoCombinationService,
+    @InjectModel(VideoChunk.name)
+    private videoChunkModel: Model<VideoChunk>,
   ) {}
 
   @Get()
@@ -108,22 +115,23 @@ export class ApiController {
   }
 
   @Get('quota/check/:model')
-  checkQuotaForModel(@Param('model') model: string) {
+  async checkQuotaForModel(@Param('model') model: string) {
     const estimatedTokens = 1000; // Default estimation
-    const check = this.quotaManager.canMakeRequest(model, estimatedTokens);
+    const check = await this.quotaManager.canMakeRequest(model, estimatedTokens);
+    const usageStats = await this.quotaManager.getUsageStats(model);
 
     return {
       model,
       estimatedTokens,
       check,
       limits: this.quotaManager.getQuotaLimits(model),
-      usage: this.quotaManager.getUsageStats(model).usage,
+      usage: usageStats.usage,
     };
   }
 
   @Get('quota/violations')
-  getQuotaViolations() {
-    const stats = this.quotaManager.getViolationStats();
+  async getQuotaViolations() {
+    const stats = await this.quotaManager.getViolationStats();
 
     return {
       violations: stats.recentViolations,
@@ -173,6 +181,83 @@ export class ApiController {
       currentTier: this.quotaManager['currentTier'],
       timestamp: new Date().toISOString(),
     };
+  }
+
+  @Get('contents/:id/chunk-progress')
+  async getChunkProgress(@Param('id') id: string) {
+    console.log(`Getting chunk progress for content: ${id}`);
+    const totalChunks = await this.videoChunkModel.countDocuments({
+      contentId: id,
+    });
+    const analyzedChunks = await this.videoChunkModel.countDocuments({
+      contentId: id,
+      status: 'ANALYZED',
+    });
+    console.log(`Total chunks: ${totalChunks}, Analyzed chunks: ${analyzedChunks}, Content ID: ${id}`);
+    return { total: totalChunks, analyzed: analyzedChunks };
+  }
+
+  @Get('content/:contentId/combination-status')
+  async getCombinationStatus(@Param('contentId') contentId: string) {
+    try {
+      const status = await this.videoCombinationService.getCombinationStatus(contentId);
+      return {
+        success: true,
+        status,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  @Post('content/:contentId/trigger-combination')
+  async triggerCombination(
+    @Param('contentId') contentId: string,
+    @Body() body: { forceModel?: string } = {},
+  ) {
+    try {
+      const result = await this.videoCombinationService.triggerCombination(
+        contentId,
+        body.forceModel,
+      );
+      return {
+        success: result.success,
+        message: result.message,
+        error: result.error,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
+  }
+
+  @Post('content/:contentId/reset-chunks')
+  async resetChunks(@Param('contentId') contentId: string) {
+    try {
+      const result = await this.videoCombinationService.resetChunks(contentId);
+      return {
+        success: result.success,
+        message: result.message,
+        resetCount: result.resetCount,
+        error: result.error,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      return {
+        success: false,
+        error: error.message,
+        timestamp: new Date().toISOString(),
+      };
+    }
   }
 }
 

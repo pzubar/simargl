@@ -43,6 +43,9 @@ export class VideoMetadata {
 
   @Prop()
   lastUpdatedAt: Date;
+
+  @Prop()
+  expectedChunks?: number; // Number of chunks expected for complete analysis
 }
 
 export const VideoMetadataSchema = SchemaFactory.createForClass(VideoMetadata);

@@ -7,6 +7,7 @@ const componentLoader = new ComponentLoader();
 const Components = {
   AnalysisDisplay: componentLoader.add('AnalysisDisplay', '/usr/src/app/apps/api/src/admin/components/analysis-display'),
   ThumbnailDisplay: componentLoader.add('ThumbnailDisplay', '/usr/src/app/apps/api/src/admin/components/thumbnail-display'),
+  ChunkProgress: componentLoader.add('ChunkProgress', '/usr/src/app/apps/api/src/admin/components/ChunkProgress'),
 };
 
 export { componentLoader, Components };

@@ -80,6 +80,115 @@ AdminJS.registerAdapter({ Database, Resource });
                   },
                 },
                 actions: {
+                  fetchLatest: {
+                    actionType: 'bulk',
+                    icon: 'Download',
+                    label: 'Fetch Latest',
+                    variant: 'primary',
+                    component: false,
+                    handler: async (request, response, context) => {
+                      const { records, currentAdmin } = context;
+                      const fetch = (await import('node-fetch')).default;
+
+                      if (!records || records.length === 0) {
+                        return {
+                          notice: {
+                            message: 'No channels selected.',
+                            type: 'error',
+                          },
+                        };
+                      }
+
+                      const results = await Promise.all(
+                        records.map(async (record) => {
+                          const channelId = record.id();
+                          try {
+                            const apiUrl = `${process.env.API_BASE_URL || 'http://localhost:3333'}/channels/${channelId}/poll`;
+                            const res = await fetch(apiUrl, {
+                              method: 'POST',
+                            });
+
+                            if (res.ok) {
+                              return {
+                                success: true,
+                                channelId,
+                                name: record.params.name,
+                              };
+                            }
+                            const errorText = await res.text();
+                            return {
+                              success: false,
+                              channelId,
+                              name: record.params.name,
+                              error: errorText,
+                            };
+                          } catch (error) {
+                            return {
+                              success: false,
+                              channelId,
+                              name: record.params.name,
+                              error: error.message,
+                            };
+                          }
+                        }),
+                      );
+
+                      const successfulPolls = results.filter((r) => r.success);
+                      const failedPolls = results.filter((r) => !r.success);
+
+                      return {
+                        records: records.map((record) =>
+                          record.toJSON(currentAdmin),
+                        ),
+                        notice: {
+                          message: `Triggered poll for ${successfulPolls.length} channels. Failed: ${failedPolls.length}.`,
+                          type: failedPolls.length > 0 ? 'warning' : 'success',
+                        },
+                      };
+                    },
+                  },
+                  pollNow: {
+                    actionType: 'record',
+                    icon: 'History',
+                    label: 'Poll for Content',
+                    handler: async (request, response, context) => {
+                      const { record, currentAdmin } = context;
+                      const channelId = record.id();
+                      const fetch = (await import('node-fetch')).default;
+                      try {
+                        const apiUrl = `${process.env.API_BASE_URL || 'http://localhost:3333'}/channels/${channelId}/poll`;
+                        const res = await fetch(apiUrl, { method: 'POST' });
+
+                        if (res.ok) {
+                          return {
+                            record: record.toJSON(currentAdmin),
+                            notice: {
+                              message:
+                                'Successfully triggered poll for channel.',
+                              type: 'success',
+                            },
+                          };
+                        }
+                        const errorText = await res.text();
+                        return {
+                          record: record.toJSON(currentAdmin),
+                          notice: {
+                            message: `Error: ${errorText}`,
+                            type: 'error',
+                          },
+                        };
+                      } catch (error) {
+                        return {
+                          record: record.toJSON(currentAdmin),
+                          notice: {
+                            message: `Error: ${error.message}`,
+                            type: 'error',
+                          },
+                        };
+                      }
+                    },
+                    component: false,
+                  },
                   new: {
                     before: async (request) => {
                       if (request.payload) {
@@ -176,6 +285,11 @@ AdminJS.registerAdapter({ Database, Resource });
                       { value: 'FAILED', label: 'Failed' },
                     ],
                     position: 4,
+                  },
+                  chunkProgress: {
+                    components: {
+                      show: Components.ChunkProgress,
+                    },
                   },
                   'metadata.viewCount': {
                     type: 'number',
@@ -394,6 +508,171 @@ AdminJS.registerAdapter({ Database, Resource });
                         return {
                           notice: {
                             message: `Error triggering analysis: ${error.message}`,
+                            type: 'error',
+                          },
+                          record: record.toJSON(context.currentAdmin),
+                        };
+                      }
+                    },
+                    showInDrawer: false,
+                  },
+
+                                    // Manual combination trigger
+                  triggerCombination: {
+                    actionType: 'record',
+                    icon: 'Layers',
+                    label: 'Combine Chunks',
+                    variant: 'success',
+                    component: false,
+                    handler: async (request, response, context) => {
+                      const { record } = context;
+                      const contentId = record.id();
+                      const fetch = (await import('node-fetch')).default;
+
+                      try {
+                        // Check combination status first via API
+                        const statusUrl = `${process.env.API_BASE_URL || 'http://localhost:3333'}/api/content/${contentId}/combination-status`;
+                        const statusResponse = await fetch(statusUrl);
+                        const statusData = await statusResponse.json();
+                        
+                        if (!statusResponse.ok || !statusData.success) {
+                          return {
+                            notice: {
+                              message: `Error checking status: ${statusData.error || 'Unknown error'}`,
+                              type: 'error',
+                            },
+                            record: record.toJSON(context.currentAdmin),
+                          };
+                        }
+
+                        if (!statusData.status.canCombine) {
+                          return {
+                            notice: {
+                              message: `Cannot combine chunks: ${statusData.status.reason}`,
+                              type: 'error',
+                            },
+                            record: record.toJSON(context.currentAdmin),
+                          };
+                        }
+
+                        // Trigger combination via API
+                        const combineUrl = `${process.env.API_BASE_URL || 'http://localhost:3333'}/api/content/${contentId}/trigger-combination`;
+                        const combineResponse = await fetch(combineUrl, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                          },
+                          body: JSON.stringify({}),
+                        });
+                        const combineData = await combineResponse.json();
+
+                        return {
+                          notice: {
+                            message: combineData.success
+                              ? combineData.message
+                              : `Error: ${combineData.error}`,
+                            type: combineData.success ? 'success' : 'error',
+                          },
+                          record: record.toJSON(context.currentAdmin),
+                        };
+                      } catch (error) {
+                        return {
+                          notice: {
+                            message: `Error triggering combination: ${error.message}`,
+                            type: 'error',
+                          },
+                          record: record.toJSON(context.currentAdmin),
+                        };
+                      }
+                    },
+                    showInDrawer: false,
+                  },
+
+                  // Reset chunks action
+                  resetChunks: {
+                    actionType: 'record',
+                    icon: 'RotateCcw',
+                    label: 'Reset Chunks',
+                    variant: 'danger',
+                    component: false,
+                    handler: async (request, response, context) => {
+                      const { record } = context;
+                      const contentId = record.id();
+                      const fetch = (await import('node-fetch')).default;
+
+                      try {
+                        // Reset chunks via API
+                        const resetUrl = `${process.env.API_BASE_URL || 'http://localhost:3333'}/api/content/${contentId}/reset-chunks`;
+                        const resetResponse = await fetch(resetUrl, {
+                          method: 'POST',
+                          headers: {
+                            'Content-Type': 'application/json',
+                          },
+                        });
+                        const resetData = await resetResponse.json();
+
+                        return {
+                          notice: {
+                            message: resetData.success
+                              ? resetData.message
+                              : `Error: ${resetData.error}`,
+                            type: resetData.success ? 'success' : 'error',
+                          },
+                          record: record.toJSON(context.currentAdmin),
+                        };
+                      } catch (error) {
+                        return {
+                          notice: {
+                            message: `Error resetting chunks: ${error.message}`,
+                            type: 'error',
+                          },
+                          record: record.toJSON(context.currentAdmin),
+                        };
+                      }
+                    },
+                    showInDrawer: false,
+                  },
+
+                  // Check combination status action
+                  checkCombinationStatus: {
+                    actionType: 'record',
+                    icon: 'Info',
+                    label: 'Check Status',
+                    variant: 'light',
+                    component: false,
+                    handler: async (request, response, context) => {
+                      const { record } = context;
+                      const contentId = record.id();
+                      const fetch = (await import('node-fetch')).default;
+
+                      try {
+                        // Check combination status via API
+                        const statusUrl = `${process.env.API_BASE_URL || 'http://localhost:3333'}/api/content/${contentId}/combination-status`;
+                        const statusResponse = await fetch(statusUrl);
+                        const statusData = await statusResponse.json();
+
+                        if (!statusResponse.ok || !statusData.success) {
+                          return {
+                            notice: {
+                              message: `Error checking status: ${statusData.error || 'Unknown error'}`,
+                              type: 'error',
+                            },
+                            record: record.toJSON(context.currentAdmin),
+                          };
+                        }
+
+                        const status = statusData.status;
+                        return {
+                          notice: {
+                            message: `Status: ${status.status} | ${status.reason} | Chunks: ${status.completedChunks}/${status.expectedChunks} completed${status.failedChunks > 0 ? `, ${status.failedChunks} failed` : ''}`,
+                            type: status.canCombine ? 'success' : 'info',
+                          },
+                          record: record.toJSON(context.currentAdmin),
+                        };
+                      } catch (error) {
+                        return {
+                          notice: {
+                            message: `Error checking status: ${error.message}`,
                             type: 'error',
                           },
                           record: record.toJSON(context.currentAdmin),
