@@ -16,9 +16,7 @@
 - **Bull Board** - Web UI for monitoring job queues
 
 ### Template Engine & Frontend
-- **Handlebars (HBS)** - Server-side templating engine
-- **Tailwind CSS** - Utility-first CSS framework
-- **Alpine.js** - Lightweight JavaScript framework for interactivity
+- **Adminjs** Admin dashboard - Admin interface for managing channels and content
 
 ### External APIs
 - **Google Gemini AI** - Content analysis and AI processing

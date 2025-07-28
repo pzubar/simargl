@@ -1,0 +1,6 @@
+---
+alwaysApply: true
+---
+
+Ignore `view` templates completely, as they are not used in the current setup.
+Use only Admin.js setup for admin views.

@@ -46,9 +46,19 @@ AdminJS.registerAdapter({ Database, Resource });
               options: {
                 navigation: {
                   name: 'Content Management',
-                  icon: 'Tv',
+                  // icon: 'Tv',
                 },
                 properties: {
+                  authorContext: {
+                    isVisible: {
+                      list: false,
+                    },
+                  },
+                  metadata: {
+                    isVisible: {
+                      list: false,
+                    },
+                  },
                   sourceType: {
                     availableValues: [
                       { value: 'YOUTUBE', label: 'YouTube' },
@@ -93,14 +103,20 @@ AdminJS.registerAdapter({ Database, Resource });
                   icon: 'FileText',
                 },
                 properties: {
-                  status: {
-                    availableValues: [
-                      { value: 'PENDING', label: 'Pending' },
-                      { value: 'METADATA_FETCHED', label: 'Metadata Fetched' },
-                      { value: 'PROCESSING', label: 'Processing' },
-                      { value: 'ANALYZED', label: 'Analyzed' },
-                      { value: 'FAILED', label: 'Failed' },
-                    ],
+                  'metadata.thumbnailUrl': {
+                    type: 'string',
+                    isVisible: {
+                      list: true,
+                      show: true,
+                      edit: false,
+                      filter: false,
+                    },
+                    description: 'Thumbnail',
+                    components: {
+                      list: Components.ThumbnailDisplay,
+                      show: Components.ThumbnailDisplay,
+                    },
+                    position: 1,
                   },
                   title: {
                     isVisible: {
@@ -109,15 +125,52 @@ AdminJS.registerAdapter({ Database, Resource });
                       edit: true,
                       filter: true,
                     },
+                    type: 'string',
+                    custom: {
+                      format: (value) => {
+                        if (!value) return '';
+                        // Decode HTML entities
+                        return value
+                          .replace(/&quot;/g, '"')
+                          .replace(/&amp;/g, '&')
+                          .replace(/&lt;/g, '<')
+                          .replace(/&gt;/g, '>')
+                          .replace(/&#39;/g, "'");
+                      },
+                    },
+                    position: 2,
                   },
-                  sourceContentId: {
+                  channelId: {
+                    type: 'reference',
+                    reference: 'Channel',
                     isVisible: {
                       list: true,
+                      show: true,
+                      edit: true,
+                      filter: true,
+                    },
+                    description: 'Associated channel',
+                    position: 3,
+                  },
+                  'metadata.channel': {
+                    type: 'string',
+                    isVisible: {
+                      list: false,
                       show: true,
                       edit: false,
                       filter: true,
                     },
-                    description: 'YouTube Video ID',
+                    description: 'Author channel name',
+                  },
+                  status: {
+                    availableValues: [
+                      { value: 'PENDING', label: 'Pending' },
+                      { value: 'METADATA_FETCHED', label: 'Metadata Fetched' },
+                      { value: 'PROCESSING', label: 'Processing' },
+                      { value: 'ANALYZED', label: 'Analyzed' },
+                      { value: 'FAILED', label: 'Failed' },
+                    ],
+                    position: 4,
                   },
                   'metadata.viewCount': {
                     type: 'number',
@@ -127,18 +180,46 @@ AdminJS.registerAdapter({ Database, Resource });
                       edit: false,
                       filter: true,
                     },
-                    description: 'Number of views on YouTube',
+                    description: 'Number of views',
                     custom: {
                       format: (value) => {
                         if (!value) return '0';
                         return new Intl.NumberFormat('en-US').format(value);
                       },
                     },
+                    position: 5,
+                  },
+                  sourceContentId: {
+                    isVisible: {
+                      list: false,
+                      show: true,
+                      edit: false,
+                      filter: true,
+                    },
+                    description: 'YouTube Video ID',
+                  },
+                  description: {
+                    type: 'textarea',
+                    isVisible: {
+                      list: false,
+                      show: true,
+                      edit: true,
+                      filter: false,
+                    },
+                    description: 'Content description',
+                  },
+                  _id: {
+                    isVisible: {
+                      list: false,
+                      show: true,
+                      edit: false,
+                      filter: true,
+                    },
                   },
                   'metadata.duration': {
                     type: 'number',
                     isVisible: {
-                      list: true,
+                      list: false,
                       show: true,
                       edit: false,
                       filter: false,
@@ -167,17 +248,7 @@ AdminJS.registerAdapter({ Database, Resource });
                       edit: false,
                       filter: false,
                     },
-                    description: 'YouTube video URL',
-                  },
-                  'metadata.thumbnailUrl': {
-                    type: 'url',
-                    isVisible: {
-                      list: false,
-                      show: true,
-                      edit: false,
-                      filter: false,
-                    },
-                    description: 'Video thumbnail image URL',
+                    description: 'Source URL - Link to original content',
                   },
                   'analysis.modelUsed': {
                     isVisible: {
@@ -207,18 +278,19 @@ AdminJS.registerAdapter({ Database, Resource });
                     description: 'Prompt version',
                   },
                   'analysis.result': {
-                      type: 'mixed',
-                      isVisible: {
-                        list: false,
-                        show: true,
-                        edit: false,
-                        filter: false,
-                      },
-                      description: 'Detailed analysis results with visual formatting',
-                      components: {
-                        show: Components.AnalysisDisplay,
-                      },
+                    type: 'mixed',
+                    isVisible: {
+                      list: false,
+                      show: true,
+                      edit: false,
+                      filter: false,
                     },
+                    description:
+                      'Detailed analysis results with visual formatting',
+                    components: {
+                      show: Components.AnalysisDisplay,
+                    },
+                  },
                   publishedAt: {
                     type: 'datetime',
                     isVisible: {
@@ -227,6 +299,7 @@ AdminJS.registerAdapter({ Database, Resource });
                       edit: true,
                       filter: true,
                     },
+                    position: 6,
                   },
                   createdAt: {
                     type: 'datetime',
@@ -268,29 +341,7 @@ AdminJS.registerAdapter({ Database, Resource });
                       return request;
                     },
                   },
-                  // Custom action to watch YouTube video
-                  watchVideo: {
-                    actionType: 'record',
-                    icon: 'Play',
-                    label: 'Watch on YouTube',
-                    variant: 'info',
-                    component: false,
-                    handler: async (request, response, context) => {
-                      const { record } = context;
-                      const videoId = record.param('sourceContentId');
-                      const youtubeUrl = `https://www.youtube.com/watch?v=${videoId}`;
 
-                      return {
-                        notice: {
-                          message: `Opening YouTube video: ${videoId}`,
-                          type: 'success',
-                        },
-                        record: record.toJSON(context.currentAdmin),
-                        redirectUrl: youtubeUrl,
-                      };
-                    },
-                    showInDrawer: false,
-                  },
                   // Single analysis action using gemini-2.5-pro by default
                   triggerAnalysis: {
                     actionType: 'record',
@@ -322,14 +373,14 @@ AdminJS.registerAdapter({ Database, Resource });
                         });
 
                         if (response.ok) {
-                                                  const result = await response.json() as any;
-                        return {
-                          notice: {
-                            message: `Analysis started with ${selectedModel}! Job ID: ${result?.jobId || 'N/A'}`,
-                            type: 'success',
-                          },
-                          record: record.toJSON(context.currentAdmin),
-                        };
+                          const result = await response.json();
+                          return {
+                            notice: {
+                              message: `Analysis started with ${selectedModel}! Job ID: ${result?.jobId || 'N/A'}`,
+                              type: 'success',
+                            },
+                            record: record.toJSON(context.currentAdmin),
+                          };
                         } else {
                           const errorText = await response.text();
                           throw new Error(errorText);
