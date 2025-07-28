@@ -4,6 +4,7 @@ import { Model, Types } from 'mongoose';
 import { VideoAnalysisService } from './video-analysis.service';
 import { Content } from '../schemas/content.schema';
 import { VideoChunk } from '../schemas/video-chunk.schema';
+import { Channel } from '../schemas/channel.schema';
 
 @Injectable()
 export class VideoCombinationService {
@@ -11,6 +12,7 @@ export class VideoCombinationService {
 
   constructor(
     @InjectModel(Content.name) private contentModel: Model<Content>,
+    @InjectModel(Channel.name) private channelModel: Model<Channel>,
     @InjectModel(VideoChunk.name) private videoChunkModel: Model<VideoChunk>,
     private videoAnalysisService: VideoAnalysisService,
   ) {}
@@ -135,6 +137,10 @@ export class VideoCombinationService {
         throw new Error('Content not found');
       }
 
+      const channel = await this.channelModel
+        .findById(content.channelId)
+        .exec();
+
       const videoInfo = {
         title: content.title || 'Video',
         description: content.description || '',
@@ -143,7 +149,7 @@ export class VideoCombinationService {
         view_count: content.metadata?.viewCount || 0,
         upload_date: content.publishedAt,
         thumbnail: content.metadata?.thumbnailUrl,
-        webpage_url: content.metadata?.webpageUrl,
+        authorContext: channel?.authorContext || '',
       };
 
       this.logger.log(

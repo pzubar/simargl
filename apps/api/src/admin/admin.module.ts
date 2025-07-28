@@ -286,11 +286,6 @@ AdminJS.registerAdapter({ Database, Resource });
                     ],
                     position: 4,
                   },
-                  chunkProgress: {
-                    components: {
-                      show: Components.ChunkProgress,
-                    },
-                  },
                   'metadata.viewCount': {
                     type: 'number',
                     isVisible: {

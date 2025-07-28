@@ -18,6 +18,7 @@ import {
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Content } from '../schemas/content.schema';
+import { Channel } from '../schemas/channel.schema';
 
 export interface VideoChunk {
   startTime: number; // in seconds
@@ -83,6 +84,7 @@ export class VideoAnalysisService {
     @InjectModel(VideoChunkModel.name)
     private videoChunkModel: Model<VideoChunkModel>,
     @InjectModel(Content.name) private contentModel: Model<Content>,
+    @InjectModel(Channel.name) private channelModel: Model<Channel>,
     private quotaManager: QuotaManagerService,
     @InjectQueue('chunk-analysis') private chunkAnalysisQueue: Queue,
   ) {
@@ -682,311 +684,6 @@ export class VideoAnalysisService {
   }
 
   /**
-   * Analyze a single video chunk
-   */
-  async analyzeVideoChunk(
-    youtubeUrl: string,
-    videoInfo: any,
-    chunk: VideoChunk,
-    prompt: Prompt,
-    forceModel?: string,
-  ): Promise<ChunkAnalysisResult> {
-    const startTime = Date.now();
-
-    try {
-      this.logger.log(
-        `🔍 Analyzing chunk ${chunk.chunkIndex + 1}/${chunk.totalChunks} (${Math.round(chunk.startTime / 60)}:${String(chunk.startTime % 60).padStart(2, '0')} - ${Math.round(chunk.endTime / 60)}:${String(chunk.endTime % 60).padStart(2, '0')})`,
-      );
-
-      const basePrompt = this.constructPrompt(
-        prompt.promptTemplate,
-        videoInfo,
-        chunk,
-      );
-
-      let lastError: Error | null = null;
-      let model: string = '';
-      const isOverloadedError = false;
-      let overloadRetryCount = 0;
-
-      // Calculate accurate token estimation based on official Gemini API documentation (outside retry loop)
-      const textPromptTokens = this.quotaManager.estimateTokenCount(basePrompt);
-      const videoTokens = this.calculateVideoTokens(chunk.duration);
-      const estimatedTokens = textPromptTokens + videoTokens;
-
-      // Enhanced retry logic with model switching for overloaded errors
-      for (let attempt = 1; attempt <= this.MAX_RETRIES; attempt++) {
-        try {
-          // Prepare the end offset for video segmentation (Google API expects seconds format)
-          const endOffsetSeconds = Math.round(chunk.endTime);
-          const endOffset = `${endOffsetSeconds}s`; // Must end with 's' for Google API
-
-          // Use forced model or find the best available model for this request
-          if (forceModel && attempt === 1) {
-            model = forceModel;
-            this.logger.log(`🎯 Using forced model: ${model}`);
-
-            // Validate that the forced model is available for this tier
-            const availableModels = this.quotaManager.getAvailableModels();
-            if (!availableModels.includes(model as any)) {
-              throw new Error(
-                `Forced model ${model} is not available for current tier`,
-              );
-            }
-
-            // Check if we can make the request with this model
-            const quotaCheck = await this.quotaManager.canMakeRequest(
-              model,
-              estimatedTokens,
-            );
-            if (!quotaCheck.allowed) {
-              throw new Error(
-                `Cannot use forced model ${model}: ${quotaCheck.reason}`,
-              );
-            }
-          } else {
-            // For retries after overload, exclude the previously failed model
-            const excludeModels = isOverloadedError && lastError ? [model] : [];
-
-            const modelSelection =
-              await this.quotaManager.findBestAvailableModel(
-                estimatedTokens,
-                excludeModels,
-              );
-
-            if (!modelSelection.model) {
-              throw new Error(
-                `No available models for analysis: ${modelSelection.reason}`,
-              );
-            }
-
-            model = modelSelection.model;
-          }
-          const quotaLimits = this.quotaManager.getQuotaLimits(model);
-
-          this.logger.log(
-            `🚀 Analysis attempt ${attempt}/${this.MAX_RETRIES} for chunk ${chunk.chunkIndex + 1} using ${model}`,
-          );
-          this.logger.log(
-            `📊 Token breakdown: ${textPromptTokens} (text) + ${videoTokens} (video ~${chunk.duration}s) = ${estimatedTokens} total.`,
-          );
-
-          const config = {
-            responseMimeType: 'application/json', // Required for structured output
-            responseSchema: VideoAnalysisResponseSchema, // Official structured output schema
-            temperature: 0.1, // Low temperature for consistency
-          };
-
-          const contents = [
-            {
-              role: 'user',
-              parts: [
-                {
-                  fileData: {
-                    fileUri: youtubeUrl,
-                    mimeType: 'video/*',
-                  },
-                  videoMetadata: {
-                    endOffset: endOffset,
-                    ...this.getOptimizedVideoSettings(),
-                  },
-                },
-                {
-                  text: basePrompt,
-                },
-              ],
-            },
-          ];
-
-          this.logger.log(`📹 Analyzing video segment: 0s - ${endOffset}`);
-
-          // Use streaming to handle large responses efficiently
-          const response = await this.genAI.models.generateContentStream({
-            model,
-            config,
-            contents,
-          });
-
-          let analysisText = '';
-          let chunkCount = 0;
-
-          // Process streaming response with memory management
-          for await (const streamChunk of response) {
-            if (streamChunk.text) {
-              analysisText += streamChunk.text;
-              chunkCount++;
-
-              // Log every 10 chunks to avoid log spam
-              if (chunkCount % 10 === 0) {
-                this.logger.log(
-                  `📄 Received ${chunkCount} response chunks (${analysisText.length} chars)`,
-                );
-              }
-            }
-          }
-
-          this.logger.log(
-            `📄 Final response: ${analysisText.length} chars from ${chunkCount} chunks`,
-          );
-
-          // With structured output, response should already be valid JSON
-          let analysis: VideoAnalysisResponse;
-          try {
-            analysis = JSON.parse(analysisText) as VideoAnalysisResponse;
-            this.logger.log(
-              `✅ Structured output successfully received for chunk ${chunk.chunkIndex + 1}`,
-            );
-
-            // Validate that we received the expected structure
-            if (
-              !analysis.metadata ||
-              !analysis.stance_and_thesis ||
-              !analysis.classification
-            ) {
-              throw new Error(
-                'Response missing required structured output fields',
-              );
-            }
-          } catch (parseError) {
-            this.logger.error(
-              `❌ Structured output parsing failed for chunk ${chunk.chunkIndex + 1}: ${parseError.message}`,
-            );
-            this.logger.warn(
-              `Response content: ${analysisText.substring(0, 500)}...`,
-            );
-            throw new Error(
-              `Structured output parsing failed: ${parseError.message}`,
-            );
-          }
-
-          const processingTime = Date.now() - startTime;
-          this.logger.log(
-            `✅ Successfully analyzed chunk ${chunk.chunkIndex + 1} in ${processingTime}ms`,
-          );
-
-          // Record quota usage for successful request
-          const actualTokens =
-            this.quotaManager.estimateTokenCount(analysisText) +
-            estimatedTokens;
-          await this.quotaManager.recordRequest(model, actualTokens);
-
-          const { usage, limits } = await this.quotaManager.getUsageStats(model);
-          this.logger.log(
-            `📊 Quota usage: ${usage.requestsInCurrentMinute}/${limits.rpm} RPM, ${usage.tokensInCurrentMinute}/${limits.tpm} TPM`,
-          );
-
-          // Clear variables to help with garbage collection
-          analysisText = null;
-
-          // Create and save the chunk result to database
-          const chunkResult = {
-            chunk, // Return the VideoChunk object (not chunkAnalysis string)
-            analysis,
-            processingTime,
-            success: true,
-            modelUsed: model,
-            isModelOverloaded: false,
-          };
-
-          return chunkResult;
-        } catch (error) {
-          lastError = error;
-          const isQuotaError = this.isQuotaExhaustedError(error);
-          const isOverloadError =
-            !isQuotaError && this.isModelOverloadedError(error);
-
-          // Handle different types of errors with appropriate strategies
-          if (isQuotaError) {
-            this.logger.error(
-              `📊 Quota exhausted for ${model}: ${error.message}`,
-            );
-            this.quotaManager.recordQuotaViolation(model || 'unknown', error);
-
-            if (attempt < this.MAX_RETRIES) {
-              this.logger.log(
-                `⏳ Waiting ${this.QUOTA_RETRY_DELAY}ms for quota to reset before retrying...`,
-              );
-              await new Promise((resolve) =>
-                setTimeout(resolve, this.QUOTA_RETRY_DELAY),
-              );
-              continue; // Retry with the same model
-            }
-          } else if (isOverloadError) {
-            overloadRetryCount++;
-            this.logger.error(
-              `📊 Model overload error for ${model}: ${error.message}`,
-            );
-
-            // Only try to switch models on the first chunk
-            if (
-              chunk.chunkIndex === 0 &&
-              overloadRetryCount <= this.MAX_OVERLOAD_RETRIES
-            ) {
-              const alternativeModel = await this.handleModelOverload(
-                model,
-                estimatedTokens,
-                overloadRetryCount,
-              );
-
-              if (alternativeModel.model) {
-                this.logger.log(
-                  `🔄 Retrying with alternative model: ${alternativeModel.model}`,
-                );
-                await new Promise((resolve) =>
-                  setTimeout(resolve, this.OVERLOAD_RETRY_DELAY),
-                );
-                continue; // Retry with new model
-              }
-            }
-            // For subsequent chunks or if model switching fails, just wait and retry with same model
-          }
-
-          this.logger.warn(
-            `⚠️ Attempt ${attempt} failed for chunk ${chunk.chunkIndex + 1}: ${error.message}`,
-          );
-
-          if (attempt < this.MAX_RETRIES) {
-            const delay = isOverloadError
-              ? this.OVERLOAD_RETRY_DELAY
-              : this.RETRY_DELAY * attempt;
-            this.logger.log(`⏳ Waiting ${delay}ms before retry...`);
-            await new Promise((resolve) => setTimeout(resolve, delay));
-          }
-        }
-      }
-
-      // All retries failed
-      const processingTime = Date.now() - startTime;
-      this.logger.error(
-        `❌ Failed to analyze chunk ${chunk.chunkIndex + 1} after ${this.MAX_RETRIES} attempts`,
-      );
-
-      return {
-        chunk,
-        analysis: null,
-        processingTime,
-        success: false,
-        error: lastError?.message || 'Unknown error',
-        isModelOverloaded: isOverloadedError,
-      };
-    } catch (error) {
-      const processingTime = Date.now() - startTime;
-      this.logger.error(
-        `❌ Error analyzing chunk ${chunk.chunkIndex + 1}: ${error.message}`,
-      );
-
-      return {
-        chunk,
-        analysis: null,
-        processingTime,
-        success: false,
-        error: error.message,
-        isModelOverloaded: this.isModelOverloadedError(error),
-      };
-    }
-  }
-
-  /**
    * Save chunk analysis result to database
    */
   private async saveChunkToDatabase(
@@ -1218,12 +915,14 @@ export class VideoAnalysisService {
     // Format chunk analyses as JSON string for the prompt
     const chunkAnalysesText = JSON.stringify(chunkAnalyses, null, 2);
 
+    // TODO: Add authorContext to the prompt
     const replacements = {
       '{{chunk_analyses}}': chunkAnalysesText,
       '{{video.title}}': videoInfo.title || 'Unknown',
       '{{video.channel}}': videoInfo.channel || 'Unknown',
       '{{video.duration}}': Math.round((videoInfo.duration || 0) / 60),
       '{{chunk.total}}': totalChunks,
+      '{{video.authorContext}}': videoInfo.authorContext || 'Unknown',
     };
 
     // Replace placeholders with actual values
@@ -1478,6 +1177,8 @@ export class VideoAnalysisService {
       return;
     }
 
+    const channel = await this.channelModel.findById(content.channelId).exec();
+
     const expectedChunks = content.metadata?.expectedChunks;
     if (!expectedChunks || expectedChunks <= 0) {
       this.logger.warn(
@@ -1514,8 +1215,8 @@ export class VideoAnalysisService {
           channel: content.metadata?.channel || 'Unknown',
           view_count: content.metadata?.viewCount || 0,
           upload_date: content.publishedAt,
-          thumbnail: content.metadata?.thumbnailUrl,
-          webpage_url: content.metadata?.webpageUrl,
+
+          authorContext: channel?.authorContext || 'Unknown',
         };
 
         // Combine the analyses

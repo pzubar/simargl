@@ -1,12 +1,12 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';  
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
 import { Document, Types } from 'mongoose';
 
 @Schema({ _id: false })
-export class Analysis {  
-  @Prop()  
+export class Analysis {
+  @Prop()
   promptVersion: number;
 
-  @Prop()  
+  @Prop()
   promptName: string;
 
   @Prop()
@@ -15,8 +15,8 @@ export class Analysis {
   @Prop()
   modelUsed?: string; // Track which Gemini model was used for analysis
 
-  @Prop({ type: Object })  
-  result: Record<string, any>;  
+  @Prop({ type: Object })
+  result: Record<string, any>;
 }
 
 export const AnalysisSchema = SchemaFactory.createForClass(Analysis);
@@ -51,56 +51,59 @@ export class VideoMetadata {
 export const VideoMetadataSchema = SchemaFactory.createForClass(VideoMetadata);
 
 @Schema({ _id: false })
-export class Statistics {  
-    @Prop()  
-    fetchDate: Date;
+export class Statistics {
+  @Prop()
+  fetchDate: Date;
 
-    @Prop()  
-    viewCount: number;
+  @Prop()
+  viewCount: number;
 
-    @Prop()  
-    likeCount: number;
+  @Prop()
+  likeCount: number;
 
-    @Prop()  
-    commentCount: number;  
+  @Prop()
+  commentCount: number;
 }
 
 export const StatisticsSchema = SchemaFactory.createForClass(Statistics);
 
-@Schema({ timestamps: true })  
-export class Content extends Document {  
-  @Prop({ required: true, unique: true })  
+@Schema({ timestamps: true })
+export class Content extends Document {
+  @Prop({ required: true, unique: true })
   sourceContentId: string;
 
-  @Prop({ type: Types.ObjectId, ref: 'Channel', required: true })  
+  @Prop({ type: Types.ObjectId, ref: 'Channel', required: true })
   channelId: Types.ObjectId;
 
-  @Prop()  
-  title?: string;  
-    
-  @Prop()  
+  @Prop()
+  title?: string;
+
+  @Prop()
   description?: string;
 
-  @Prop()  
+  @Prop()
   publishedAt: Date;
 
-  @Prop({ required: true, enum: ['PENDING', 'METADATA_FETCHED', 'PROCESSING', 'ANALYZED', 'FAILED'] })  
+  @Prop({
+    required: true,
+    enum: ['PENDING', 'METADATA_FETCHED', 'PROCESSING', 'ANALYZED', 'FAILED'],
+  })
   status: string;
 
-  @Prop({ type: Object })  
-  data: {  
-    transcript?: string;  
-    text?: string;  
+  @Prop({ type: Object })
+  data: {
+    transcript?: string;
+    text?: string;
   };
 
   @Prop({ type: VideoMetadataSchema })
   metadata?: VideoMetadata;
 
-  @Prop({ type: AnalysisSchema })  
+  @Prop({ type: AnalysisSchema })
   analysis?: Analysis;
 
-  @Prop({ type: [StatisticsSchema], default: [] })  
-  statistics: Statistics[];  
+  @Prop({ type: [StatisticsSchema], default: [] })
+  statistics: Statistics[];
 }
 
 export const ContentSchema = SchemaFactory.createForClass(Content);
