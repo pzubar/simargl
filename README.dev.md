@@ -121,6 +121,8 @@ The system includes enhanced database-backed quota management for AI model usage
 - **Default Model Selection**: Configurable via environment variable
 - **Enhanced Monitoring**: `/api/quota/status` and `/api/quota/violations`
 - **Model Fallback**: Automatically switches to available models
+- **Job-Based Cleanup**: Scheduled cleanup for overloaded models and daily violations
+- **Quota-Aware Combination**: Combination process respects quota limits with intelligent delays
 
 ### Quota Error Handling
 
@@ -128,9 +130,24 @@ The system includes enhanced database-backed quota management for AI model usage
 - **RPD (Requests Per Day)**: Will stop processing for the day to avoid further violations
 - **Overload Errors**: Will temporarily mark models as unavailable and switch to alternatives
 
+### Cleanup Schedule
+
+- **Overload Cleanup**: Scheduled 1 minute after each request to clear overload flags
+- **Daily Cleanup**: Runs at midnight Pacific Time to clear old RPD violations
+- **Automatic Scheduling**: Uses BullMQ job queues for reliable scheduling
+
 ## Manual Chunk Management
 
 The system now supports manual control over chunk analysis and combination:
+
+### Queue-Based Combination System
+
+Combination is now handled by dedicated queue processors with quota awareness:
+
+- **Automatic Queuing**: Chunk analysis processor queues combination jobs when all chunks complete
+- **Quota-Aware Processing**: Combination jobs respect API quotas and retry with appropriate delays
+- **Manual Queuing**: Admin actions and API calls queue combination jobs instead of direct processing
+- **Intelligent Retries**: Failed jobs retry with exponential backoff, respecting Google's retry delays
 
 ### Admin Interface Actions
 
@@ -138,7 +155,7 @@ In the Content show page, you'll find new action buttons:
 
 - **🧠 Run Analysis**: Start initial chunk analysis
 - **ℹ️ Check Status**: View current chunk completion status (calls API)
-- **📊 Combine Chunks**: Manually trigger combination when chunks are ready (calls API)
+- **📊 Combine Chunks**: Manually queue combination job when chunks are ready (calls API)
 - **🔄 Reset Chunks**: Reset all chunks to pending state for re-analysis (calls API)
 
 Note: Admin actions use HTTP API calls to ensure proper service isolation and reliability.
@@ -146,19 +163,27 @@ Note: Admin actions use HTTP API calls to ensure proper service isolation and re
 ### API Endpoints
 
 - **GET** `/api/content/:contentId/combination-status` - Check combination readiness
-- **POST** `/api/content/:contentId/trigger-combination` - Manually trigger combination
+- **POST** `/api/content/:contentId/trigger-combination` - Queue combination job
 - **POST** `/api/content/:contentId/reset-chunks` - Reset chunks for re-analysis
 
 ### Combination Logic
 
-- **Automatic**: Triggers when all chunks complete successfully
-- **Manual**: Can be triggered via admin interface or API
+- **Automatic**: Queues combination jobs when all chunks complete successfully
+- **Manual**: Can be queued via admin interface or API
 - **Partial**: Supports combination with some failed chunks (manual only)
 - **Status Types**:
   - `READY`: All chunks completed, can combine
   - `PARTIAL`: Some chunks failed, can attempt combination
   - `PROCESSING`: Still analyzing chunks
   - `NOT_CHUNKED`: Content not yet chunked
+
+### Job Queues
+
+The system uses several BullMQ queues for background processing:
+
+- **`chunk-analysis`**: Individual chunk analysis jobs
+- **`combination`**: Combination jobs with quota awareness
+- **`quota-cleanup`**: Scheduled cleanup of overloaded models and violations
 
 ## Environment Variables
 

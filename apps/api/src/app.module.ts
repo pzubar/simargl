@@ -69,6 +69,8 @@ import { VideoAnalysisService } from './services/video-analysis.service';
       { name: 'analysis' },
       { name: 'chunk-analysis' },
       { name: 'stats' },
+      { name: 'combination' },
+      { name: 'quota-cleanup' },
     ),
 
     BullBoardModule.forRoot({
@@ -103,6 +105,11 @@ import { VideoAnalysisService } from './services/video-analysis.service';
 
     BullBoardModule.forFeature({
       name: 'stats',
+      adapter: BullMQAdapter,
+    }),
+
+    BullBoardModule.forFeature({
+      name: 'combination',
       adapter: BullMQAdapter,
     }),
 

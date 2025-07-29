@@ -1166,18 +1166,25 @@ export class VideoAnalysisService {
 
   /**
    * Check if all chunks for a content are complete and trigger combination if needed
+   * Note: This method now queues a combination job instead of performing the combination directly
    */
   async checkAndTriggerCombination(
     contentId: string | Types.ObjectId,
   ): Promise<void> {
+    this.logger.warn(
+      `⚠️ checkAndTriggerCombination is deprecated. Combination is now handled automatically by the chunk analysis processor.`,
+    );
+    
+    this.logger.log(
+      `📊 Checking combination status for content ${contentId}...`,
+    );
+
     // Get the expected number of chunks from content metadata
     const content = await this.contentModel.findById(contentId).exec();
     if (!content) {
       this.logger.error(`❌ Content ${contentId} not found`);
       return;
     }
-
-    const channel = await this.channelModel.findById(content.channelId).exec();
 
     const expectedChunks = content.metadata?.expectedChunks;
     if (!expectedChunks || expectedChunks <= 0) {
@@ -1196,64 +1203,15 @@ export class VideoAnalysisService {
       `📊 Chunk completion status for content ${contentId}: ${completedChunks}/${expectedChunks}`,
     );
 
-    // If all expected chunks are complete, trigger the combination process
+    // If all expected chunks are complete, log the status (combination is now handled by the queue system)
     if (completedChunks === expectedChunks) {
       this.logger.log(
-        `🚀 All ${expectedChunks} chunks complete for content ${contentId}, starting combination...`,
+        `✅ All ${expectedChunks} chunks complete for content ${contentId}. Combination should be handled automatically by the combination queue system.`,
       );
-
-      try {
-        // Use the content we already fetched above
-        if (!content) {
-          throw new Error(`Content ${contentId} not found`);
-        }
-
-        const videoInfo = {
-          title: content.title || 'Video',
-          description: content.description || '',
-          duration: content.metadata?.duration || 0,
-          channel: content.metadata?.channel || 'Unknown',
-          view_count: content.metadata?.viewCount || 0,
-          upload_date: content.publishedAt,
-
-          authorContext: channel?.authorContext || 'Unknown',
-        };
-
-        // Combine the analyses
-        const combinedResult = await this.combineChunkAnalysesUsingAI(
-          contentId,
-          videoInfo,
-        );
-
-        // Update the content with the final analysis
-        await this.contentModel.updateOne(
-          { _id: contentId },
-          {
-            analysis: {
-              result: combinedResult,
-              combinedAt: new Date(),
-            },
-            status: 'ANALYZED',
-          },
-        );
-
-        this.logger.log(
-          `✅ Successfully combined and saved analysis for content ${contentId}`,
-        );
-      } catch (error) {
-        this.logger.error(
-          `❌ Failed to combine analysis for content ${contentId}: ${error.message}`,
-        );
-
-        // Mark content as failed
-        await this.contentModel.updateOne(
-          { _id: contentId },
-          {
-            status: 'FAILED',
-            lastError: `Combination failed: ${error.message}`,
-          },
-        );
-      }
+    } else {
+      this.logger.log(
+        `⏳ Content ${contentId} still processing: ${completedChunks}/${expectedChunks} chunks completed.`,
+      );
     }
   }
 }

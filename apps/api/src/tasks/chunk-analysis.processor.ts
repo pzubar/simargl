@@ -1,5 +1,5 @@
-import { Processor, WorkerHost } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
+import { Job, Queue } from 'bullmq';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { VideoChunk } from '../schemas/video-chunk.schema';
@@ -21,6 +21,7 @@ export class ChunkAnalysisProcessor extends WorkerHost {
     private videoAnalysisService: VideoAnalysisService,
     private videoCombinationService: VideoCombinationService,
     private enhancedQuotaManager: QuotaManagerService,
+    @InjectQueue('combination') private combinationQueue: Queue,
   ) {
     super();
   }
@@ -314,20 +315,31 @@ export class ChunkAnalysisProcessor extends WorkerHost {
       // Only auto-trigger if all chunks are completed successfully (not partial)
       if (status.canCombine && status.status === 'READY') {
         this.logger.log(
-          `🚀 All chunks ready for content ${contentId}, auto-triggering combination...`,
+          `🚀 All chunks ready for content ${contentId}, queuing combination job...`,
         );
         
-        const result = await this.videoCombinationService.triggerCombination(contentId);
+        // Queue the combination job with quota-aware processing
+        const combinationJob = await this.combinationQueue.add(
+          'combine-chunks',
+          {
+            contentId: contentId,
+            retryCount: 0,
+          },
+          {
+            attempts: 5,
+            backoff: {
+              type: 'exponential',
+              delay: 5 * 60 * 1000, // 5 minutes base delay
+            },
+            removeOnComplete: 5,
+            removeOnFail: 10,
+            // Custom delay handling for quota limits will be done in the processor
+          }
+        );
         
-        if (result.success) {
-          this.logger.log(
-            `✅ Auto-combination successful for content ${contentId}: ${result.message}`,
-          );
-        } else {
-          this.logger.error(
-            `❌ Auto-combination failed for content ${contentId}: ${result.error}`,
-          );
-        }
+        this.logger.log(
+          `✅ Combination job queued for content ${contentId} (Job ID: ${combinationJob.id})`,
+        );
       } else if (status.status === 'PARTIAL') {
         this.logger.warn(
           `⚠️ Content ${contentId} has partial completion (${status.completedChunks}/${status.expectedChunks} successful, ${status.failedChunks} failed). Manual combination required.`,

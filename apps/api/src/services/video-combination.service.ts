@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
+import { InjectQueue } from '@nestjs/bullmq';
+import { Queue } from 'bullmq';
 import { VideoAnalysisService } from './video-analysis.service';
 import { Content } from '../schemas/content.schema';
 import { VideoChunk } from '../schemas/video-chunk.schema';
@@ -15,6 +17,7 @@ export class VideoCombinationService {
     @InjectModel(Channel.name) private channelModel: Model<Channel>,
     @InjectModel(VideoChunk.name) private videoChunkModel: Model<VideoChunk>,
     private videoAnalysisService: VideoAnalysisService,
+    @InjectQueue('combination') private combinationQueue: Queue,
   ) {}
 
   /**
@@ -106,7 +109,7 @@ export class VideoCombinationService {
   ): Promise<{
     success: boolean;
     message: string;
-    combinationResult?: any;
+    combinationJobId?: string;
     error?: string;
   }> {
     this.logger.log(
@@ -156,38 +159,37 @@ export class VideoCombinationService {
         `🚀 Starting combination for content ${contentId} with ${status.completedChunks} chunks`,
       );
 
-      // Use the existing combination method from VideoAnalysisService
-      const combinedResult =
-        await this.videoAnalysisService.combineChunkAnalysesUsingAI(
-          contentId,
-          videoInfo,
-          forceModel,
-        );
-
-      // Update the content with the final analysis
-      await this.contentModel.updateOne(
-        { _id: contentId },
+      // Queue the combination job with quota-aware processing
+      const combinationJob = await this.combinationQueue.add(
+        'manual-combination',
         {
-          'analysis.result': combinedResult,
-          'analysis.combinedAt': new Date(),
-          'analysis.manuallyTriggered': true,
-          'analysis.combinedChunks': status.completedChunks,
-          'analysis.failedChunks': status.failedChunks,
-          status: 'ANALYZED',
+          contentId: contentId.toString(),
+          forceModel: forceModel,
+          retryCount: 0,
         },
+        {
+          attempts: 5,
+          backoff: {
+            type: 'exponential',
+            delay: 5 * 60 * 1000, // 5 minutes base delay for quota issues
+          },
+          removeOnComplete: 5,
+          removeOnFail: 10,
+          priority: 10, // Higher priority for manual triggers
+        }
       );
 
       this.logger.log(
-        `✅ Successfully combined and saved analysis for content ${contentId}`,
+        `✅ Combination job queued for content ${contentId} (Job ID: ${combinationJob.id})`,
       );
 
       return {
         success: true,
         message:
           status.status === 'PARTIAL'
-            ? `Successfully combined ${status.completedChunks}/${status.expectedChunks} chunks (${status.failedChunks} failed chunks were skipped)`
-            : `Successfully combined all ${status.completedChunks} chunks`,
-        combinationResult: combinedResult,
+            ? `Combination job queued for ${status.completedChunks}/${status.expectedChunks} chunks (${status.failedChunks} failed chunks will be skipped)`
+            : `Combination job queued for all ${status.completedChunks} chunks`,
+        combinationJobId: combinationJob.id,
       };
     } catch (error) {
       this.logger.error(

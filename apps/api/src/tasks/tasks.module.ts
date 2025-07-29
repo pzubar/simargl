@@ -17,6 +17,8 @@ import { MetadataProcessingProcessor } from './metadata-processing.processor';
 import { AnalysisProcessor } from './analysis.processor';  
 import { ChunkAnalysisProcessor } from './chunk-analysis.processor';
 import { StatsProcessor } from './stats.processor';
+import { QuotaCleanupProcessor } from './quota-cleanup.processor';
+import { CombinationProcessor } from './combination.processor';
 
 // Import Services
 import { VideoAnalysisService } from '../services/video-analysis.service';
@@ -41,6 +43,8 @@ import { EnhancedQuotaManagerService as QuotaManagerService } from '../services/
       { name: 'analysis' },
       { name: 'chunk-analysis' },
       { name: 'stats' },
+      { name: 'quota-cleanup' },
+      { name: 'combination' },
     ),
   ],  
   providers: [  
@@ -50,6 +54,8 @@ import { EnhancedQuotaManagerService as QuotaManagerService } from '../services/
     AnalysisProcessor,  
     ChunkAnalysisProcessor,
     StatsProcessor,
+    QuotaCleanupProcessor,
+    CombinationProcessor,
     VideoAnalysisService,
     VideoCombinationService,
     QuotaManagerService,
