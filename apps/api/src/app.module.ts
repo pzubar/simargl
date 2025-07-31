@@ -24,6 +24,7 @@ import { BullBoardModule } from '@bull-board/nestjs';
 import { ExpressAdapter } from '@bull-board/express';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
 import { VideoAnalysisService } from './services/video-analysis.service';
+import { BullMQRateLimitService } from './services/bullmq-rate-limit.service';
 
 @Module({
   imports: [
@@ -124,6 +125,7 @@ import { VideoAnalysisService } from './services/video-analysis.service';
     QuotaManagerService,
     VideoAnalysisService,
     VideoCombinationService,
+    BullMQRateLimitService,
   ],
 })
 export class AppModule {}

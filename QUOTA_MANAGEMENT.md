@@ -125,6 +125,8 @@ The quota manager is automatically integrated into the video analysis pipeline:
 3. **Usage Recording**: Records actual token usage after requests
 4. **Logging**: Provides detailed quota usage logs
 
+> **Processor Architecture Note**: The system uses a chunk-based processing approach where individual video chunks are processed separately and then combined. This provides better quota management granularity compared to processing entire videos in single jobs. See `PROCESSOR_DOCUMENTATION.md` for details on the recommended architecture.
+
 ## Example Logs
 
 ```

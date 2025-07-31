@@ -6,11 +6,7 @@ import { google } from 'googleapis';
 import { Prompt } from '../schemas/prompt.schema';
 import { VideoChunk as VideoChunkModel } from '../schemas/video-chunk.schema';
 import { GoogleGenAI } from '@google/genai';
-import {
-  EnhancedQuotaManagerService as QuotaManagerService,
-  GEMINI_MODELS,
-  GeminiModel,
-} from './enhanced-quota-manager.service';
+import { EnhancedQuotaManagerService as QuotaManagerService } from './enhanced-quota-manager.service';
 import {
   VideoAnalysisResponseSchema,
   VideoAnalysisResponse,
@@ -19,6 +15,16 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { Content } from '../schemas/content.schema';
 import { Channel } from '../schemas/channel.schema';
+
+export interface VideoMetadata {
+  duration: number;
+  viewCount: number;
+  channel: string;
+  thumbnailUrl: string;
+  webpageUrl: string;
+  fetchedAt: Date;
+  lastUpdatedAt: Date;
+}
 
 export interface VideoChunk {
   startTime: number; // in seconds
@@ -968,7 +974,7 @@ export class VideoAnalysisService {
    */
   async fetchVideoMetadata(
     youtubeUrl: string,
-  ): Promise<{ videoId: string; metadata: any }> {
+  ): Promise<{ videoId: string; metadata: VideoMetadata }> {
     this.logger.log(`📋 Fetching metadata for YouTube video: ${youtubeUrl}`);
 
     try {
@@ -983,7 +989,7 @@ export class VideoAnalysisService {
         webpageUrl: info.webpage_url,
         fetchedAt: new Date(),
         lastUpdatedAt: new Date(),
-      };
+      } as VideoMetadata;
 
       this.logger.log(
         `✅ Successfully fetched metadata for video: ${info.title}`,
@@ -1174,7 +1180,7 @@ export class VideoAnalysisService {
     this.logger.warn(
       `⚠️ checkAndTriggerCombination is deprecated. Combination is now handled automatically by the chunk analysis processor.`,
     );
-    
+
     this.logger.log(
       `📊 Checking combination status for content ${contentId}...`,
     );

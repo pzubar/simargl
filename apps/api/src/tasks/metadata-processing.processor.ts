@@ -1,10 +1,11 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { Job, Queue } from 'bullmq';
+import { Job } from 'bullmq';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Content } from '../schemas/content.schema';
 import { VideoAnalysisService } from '../services/video-analysis.service';
 import { Logger } from '@nestjs/common';
+import { AnalysisQueueData } from './analysis.processor';
 
 @Processor('metadata-processing')
 export class MetadataProcessingProcessor extends WorkerHost {
@@ -12,17 +13,21 @@ export class MetadataProcessingProcessor extends WorkerHost {
 
   constructor(
     @InjectModel(Content.name) private contentModel: Model<Content>,
-    @InjectQueue('analysis') private analysisQueue: Queue,
+    @InjectQueue('analysis') private analysisQueue: AnalysisQueueData,
     private videoAnalysisService: VideoAnalysisService,
   ) {
     super();
   }
 
-  async process(job: Job<any, any, string>): Promise<any> {
-    this.logger.log(`📋 Processing metadata for content: ${job.data.contentId}`);
-    
+  async process(job: Job<{ contentId: string }>): Promise<void> {
+    this.logger.log(
+      `📋 Processing metadata for content: ${job.data.contentId}`,
+    );
+
+    const { contentId } = job.data;
+
     const content = await this.contentModel.findById(job.data.contentId).exec();
-    
+
     if (!content) {
       this.logger.error(`❌ Content with id ${job.data.contentId} not found.`);
       return;
@@ -31,11 +36,12 @@ export class MetadataProcessingProcessor extends WorkerHost {
     try {
       // Construct YouTube URL
       const youtubeUrl = `https://www.youtube.com/watch?v=${content.sourceContentId}`;
-      
+
       this.logger.log(`🔍 Fetching metadata for: ${youtubeUrl}`);
 
       // Fetch video metadata
-      const { videoId, metadata } = await this.videoAnalysisService.fetchVideoMetadata(youtubeUrl);
+      const { metadata } =
+        await this.videoAnalysisService.fetchVideoMetadata(youtubeUrl);
 
       // Save metadata to database
       await this.contentModel.updateOne(
@@ -43,36 +49,44 @@ export class MetadataProcessingProcessor extends WorkerHost {
         {
           metadata: metadata,
           status: 'METADATA_FETCHED',
-        }
+        },
       );
 
-      this.logger.log(`✅ Successfully saved metadata for content: ${content._id}`);
-      this.logger.log(`   📊 Duration: ${Math.round(metadata.duration / 60)}m ${metadata.duration % 60}s`);
+      this.logger.log(
+        `✅ Successfully saved metadata for content: ${content._id}`,
+      );
+      this.logger.log(
+        `   📊 Duration: ${Math.round(metadata.duration / 60)}m ${metadata.duration % 60}s`,
+      );
       this.logger.log(`   👀 Views: ${metadata.viewCount.toLocaleString()}`);
 
       // Queue for analysis with retry configuration
-      await this.analysisQueue.add('analyze-content', { 
-        contentId: content._id,
-        hasMetadata: true // Flag to indicate metadata is already available
-      }, {
-        attempts: 4, // Total attempts (1 initial + 3 retries)
-        backoff: {
-          type: 'exponential',
-          delay: 30000, // 30 seconds base delay
+      await this.analysisQueue.add(
+        'analyze-content',
+        {
+          contentId: contentId,
+          hasMetadata: true,
         },
-        removeOnComplete: 10, // Keep last 10 completed jobs
-        removeOnFail: 20, // Keep last 20 failed jobs for debugging
-      });
-
+        {
+          attempts: 4, // Total attempts (1 initial + 3 retries)
+          backoff: {
+            type: 'exponential',
+            delay: 30000, // 30 seconds base delay
+          },
+          removeOnComplete: 10, // Keep last 10 completed jobs
+          removeOnFail: 20, // Keep last 20 failed jobs for debugging
+        },
+      );
     } catch (error) {
-      this.logger.error(`❌ Failed to fetch metadata for ${content.sourceContentId}: ${error.message}`);
-      
+      if (error instanceof Error) {
+        this.logger.error(
+          `❌ Failed to fetch metadata for ${content.sourceContentId}: ${error.message}`,
+        );
+      }
       await this.contentModel.updateOne(
         { _id: content._id },
-        { status: 'FAILED' }
+        { status: 'FAILED' },
       );
     }
-
-    return {};
   }
-} 
+}

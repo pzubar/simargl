@@ -1,28 +1,35 @@
 import { Processor, WorkerHost, OnWorkerEvent, InjectQueue } from '@nestjs/bullmq';
-import { Logger } from '@nestjs/common';
-import { Job, Queue } from 'bullmq';
+import { Job, Queue, Worker } from 'bullmq';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { Content } from '../schemas/content.schema';
-import { Channel } from '../schemas/channel.schema';
+import { VideoCombinationService } from '../services/video-combination.service';
 import { VideoAnalysisService } from '../services/video-analysis.service';
 import { EnhancedQuotaManagerService as QuotaManagerService } from '../services/enhanced-quota-manager.service';
+import { BullMQRateLimitService } from '../services/bullmq-rate-limit.service';
+import { Logger } from '@nestjs/common';
 
-export interface CombinationJobData {
+interface CombinationJobData {
   contentId: string;
   forceModel?: string;
   retryCount?: number;
 }
 
-@Processor('combination')
+@Processor('combination', {
+  limiter: {
+    max: 8, // Moderate rate limit for combination tasks
+    duration: 60000, // 1 minute
+  },
+})
 export class CombinationProcessor extends WorkerHost {
   private readonly logger = new Logger(CombinationProcessor.name);
 
   constructor(
     @InjectModel(Content.name) private contentModel: Model<Content>,
-    @InjectModel(Channel.name) private channelModel: Model<Channel>,
+    private videoCombinationService: VideoCombinationService,
     private videoAnalysisService: VideoAnalysisService,
     private quotaManager: QuotaManagerService,
+    private rateLimitService: BullMQRateLimitService,
     @InjectQueue('combination') private combinationQueue: Queue,
   ) {
     super();
@@ -30,19 +37,43 @@ export class CombinationProcessor extends WorkerHost {
 
   async process(job: Job<CombinationJobData, any, string>): Promise<any> {
     const { contentId, forceModel, retryCount = 0 } = job.data;
+    let selectedModel = forceModel; // Declare here for broader scope
+
+    this.logger.log(
+      `🔄 Starting combination for content ${contentId} (retry ${retryCount})`,
+    );
 
     try {
-      this.logger.log(
-        `🔄 Starting combination job for content: ${contentId} (attempt ${retryCount + 1})`,
-      );
+      // Pre-check quota and apply rate limiting if needed
+      const estimatedTokens = 50000; // Conservative estimate for combination task
+      
+      if (!selectedModel) {
+        const modelResult = await this.quotaManager.findBestAvailableModel(estimatedTokens);
+        selectedModel = modelResult.model;
+      }
+      
+      if (selectedModel) {
+        const rateLimitResult = await this.rateLimitService.applyQuotaRateLimit(
+          this.worker as Worker,
+          selectedModel,
+          estimatedTokens
+        );
+        
+        if (rateLimitResult.applied) {
+          this.logger.warn(
+            `⏳ Pre-emptive rate limit applied for combination ${contentId}: ${rateLimitResult.reason}`
+          );
+          throw Worker.RateLimitError();
+        }
+      }
 
-      // Get content and channel info
+      await this.checkQuotaAndWait(contentId, forceModel);
+
+      // Get content and prepare video info for combination
       const content = await this.contentModel.findById(contentId).exec();
       if (!content) {
         throw new Error(`Content ${contentId} not found`);
       }
-
-      const channel = await this.channelModel.findById(content.channelId).exec();
 
       const videoInfo = {
         title: content.title || 'Video',
@@ -51,86 +82,79 @@ export class CombinationProcessor extends WorkerHost {
         channel: content.metadata?.channel || 'Unknown',
         view_count: content.metadata?.viewCount || 0,
         upload_date: content.publishedAt,
-        authorContext: channel?.authorContext || 'Unknown',
       };
 
-      // Check quota before attempting combination
-      await this.checkQuotaAndWait(contentId, forceModel);
-
       // Perform the combination
-      const combinedResult = await this.videoAnalysisService.combineChunkAnalysesUsingAI(
+      const combinedAnalysis = await this.videoAnalysisService.combineChunkAnalysesUsingAI(
         contentId,
         videoInfo,
-        forceModel,
+        selectedModel,
       );
 
-      // Update the content with the final analysis
+      if (!combinedAnalysis) {
+        throw new Error('Combination failed - no result returned');
+      }
+
+      // Record quota usage for the model used
+      if (selectedModel) {
+        await this.quotaManager.recordRequest(selectedModel, 5000); // Estimated tokens for combination
+      }
+
+      // Update content status
       await this.contentModel.updateOne(
         { _id: contentId },
         {
-          analysis: {
-            result: combinedResult,
-            combinedAt: new Date(),
-          },
-          status: 'ANALYZED',
+          status: 'COMPLETED',
+          completedAt: new Date(),
+          'analysis.result': combinedAnalysis,
+          'analysis.modelUsed': selectedModel,
+          'analysis.combinedAt': new Date(),
         },
       );
 
       this.logger.log(
-        `✅ Successfully combined and saved analysis for content ${contentId}`,
+        `✅ Combination completed for content ${contentId} using model ${selectedModel}`,
       );
 
       return {
         success: true,
         contentId,
         combinedAt: new Date(),
-        modelUsed: forceModel || 'auto-selected',
+        modelUsed: selectedModel || 'auto-selected',
       };
     } catch (error) {
+      // If this is a RateLimitError, don't log as an exception
+      if (error instanceof Error && error.name === 'RateLimitError') {
+        throw error; // Re-throw to let BullMQ handle it
+      }
+      
       this.logger.error(
         `❌ Combination job failed for content ${contentId}: ${error.message}`,
       );
 
-             // Check if this is a quota-related error that should trigger a retry with delay
-       if (this.isQuotaError(error)) {
-         const parsedError = this.quotaManager.parseQuotaError(error);
-         
-         if (parsedError?.retryDelaySeconds && parsedError.retryDelaySeconds > 0) {
-           this.logger.warn(
-             `⏳ Quota exceeded, scheduling retry in ${parsedError.retryDelaySeconds}s`,
-           );
-           
-           // Create a delayed retry job instead of relying on BullMQ's built-in retry
-           const retryJob = await this.combinationQueue.add(
-             'combination-retry',
-             {
-               ...job.data,
-               retryCount: (job.data.retryCount || 0) + 1,
-             },
-             {
-               delay: parsedError.retryDelaySeconds * 1000, // Convert to milliseconds
-               attempts: 1, // Single attempt for the delayed job
-               removeOnComplete: 5,
-               removeOnFail: 10,
-             }
-           );
-           
-           this.logger.log(
-             `✅ Delayed retry job scheduled for content ${contentId} (Job ID: ${retryJob.id})`,
-           );
-           
-           // Don't throw error to prevent BullMQ's built-in retry
-           return {
-             success: false,
-             contentId,
-             delayed: true,
-             retryJobId: retryJob.id,
-             retryDelaySeconds: parsedError.retryDelaySeconds,
-           };
-         }
+      // Check if this is a quota-related error that should trigger rate limiting
+      if (this.isQuotaError(error)) {
+        const modelUsed = selectedModel || 'unknown';
         
+        // Use the rate limiting service to handle quota violations
+        const rateLimitResult = await this.rateLimitService.handleQuotaViolation(
+          this.worker as Worker,
+          modelUsed,
+          error
+        );
+        
+        if (rateLimitResult.rateLimited) {
+          this.logger.warn(
+            `📊 Quota violation handled with rate limiting for model ${modelUsed}, retry in ${rateLimitResult.retryDelayMs}ms`
+          );
+          
+          // Throw RateLimitError to signal BullMQ about rate limiting
+          throw Worker.RateLimitError();
+        }
+        
+        // If RPD violation, mark as failed
+        const parsedError = this.quotaManager.parseQuotaError(error);
         if (parsedError?.isRpdViolation) {
-          // Don't retry for daily quota - mark as failed
           await this.contentModel.updateOne(
             { _id: contentId },
             {

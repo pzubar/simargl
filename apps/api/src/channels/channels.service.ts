@@ -35,12 +35,15 @@ export class ChannelsService {
     return channel;
   }
 
-  async scheduleRecurringChannelPoll(channelId: string, cronPattern: string): Promise<void> {
+  async scheduleRecurringChannelPoll(
+    channelId: string,
+    cronPattern: string,
+  ): Promise<void> {
     const jobName = `poll-channel-${channelId}`;
-    
+
     // Remove any existing recurring job for this channel
     await this.removeRecurringChannelPoll(channelId);
-    
+
     // Add new recurring job
     await this.channelPollQueue.add(
       'poll-channel',
@@ -50,26 +53,30 @@ export class ChannelsService {
         removeOnComplete: 10, // Keep last 10 completed jobs
         removeOnFail: 5, // Keep last 5 failed jobs
         jobId: jobName, // Use consistent job ID for easy management
-      }
+      },
     );
-    
-    console.log(`✅ Scheduled recurring job for channel ${channelId} with pattern: ${cronPattern}`);
+
+    console.log(
+      `✅ Scheduled recurring job for channel ${channelId} with pattern: ${cronPattern}`,
+    );
   }
 
   async removeRecurringChannelPoll(channelId: string): Promise<void> {
     const jobName = `poll-channel-${channelId}`;
-    
+
     try {
       // Get the repeatable job
       const repeatableJobs = await this.channelPollQueue.getRepeatableJobs();
-      const jobToRemove = repeatableJobs.find(job => job.id === jobName);
-      
+      const jobToRemove = repeatableJobs.find((job) => job.id === jobName);
+
       if (jobToRemove) {
         await this.channelPollQueue.removeRepeatableByKey(jobToRemove.key);
         console.log(`✅ Removed recurring job for channel ${channelId}`);
       }
     } catch (error) {
-      console.warn(`⚠️ Could not remove recurring job for channel ${channelId}: ${error.message}`);
+      console.warn(
+        `⚠️ Could not remove recurring job for channel ${channelId}: ${error.message}`,
+      );
     }
   }
 
@@ -77,7 +84,9 @@ export class ChannelsService {
     // This method is deprecated, replaced with scheduleRecurringChannelPoll
     // Schedule an immediate job to start polling the channel
     await this.channelPollQueue.add('poll-channel', { channelId });
-    console.log(`✅ Scheduled immediate channel poll task for channel: ${channelId}`);
+    console.log(
+      `✅ Scheduled immediate channel poll task for channel: ${channelId}`,
+    );
   }
 
   async getAllChannels(): Promise<Channel[]> {
@@ -97,13 +106,15 @@ export class ChannelsService {
     if (!channel) {
       throw new NotFoundException(`Channel with ID ${id} not found`);
     }
-    
+
     // Remove recurring job before deleting the channel if it's a YouTube channel
     if (channel.sourceType === 'YOUTUBE') {
       await this.removeRecurringChannelPoll(id);
-      console.log(`✅ Removed recurring job for deleted channel: ${channel.name}`);
+      console.log(
+        `✅ Removed recurring job for deleted channel: ${channel.name}`,
+      );
     }
-    
+
     const result = await this.channelModel.findByIdAndDelete(id).exec();
     if (!result) {
       throw new NotFoundException(`Channel with ID ${id} not found`);
@@ -111,27 +122,33 @@ export class ChannelsService {
     console.log(`✅ Deleted channel: ${id}`);
   }
 
-  async updateChannel(id: string, updateData: Partial<CreateChannelDto>): Promise<Channel> {
+  async updateChannel(
+    id: string,
+    updateData: Partial<CreateChannelDto>,
+  ): Promise<Channel> {
     const currentChannel = await this.channelModel.findById(id).exec();
     if (!currentChannel) {
       throw new NotFoundException(`Channel with ID ${id} not found`);
     }
 
-    const channel = await this.channelModel.findByIdAndUpdate(
-      id, 
-      updateData, 
-      { new: true, runValidators: true }
-    ).exec();
-    
+    const channel = await this.channelModel
+      .findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
+      .exec();
+
     if (!channel) {
       throw new NotFoundException(`Channel with ID ${id} not found`);
     }
 
     // If cronPattern was updated and it's a YouTube channel, reschedule the job
-    if (updateData.cronPattern && currentChannel.sourceType === 'YOUTUBE' && 
-        updateData.cronPattern !== currentChannel.cronPattern) {
+    if (
+      updateData.cronPattern &&
+      currentChannel.sourceType === 'YOUTUBE' &&
+      updateData.cronPattern !== currentChannel.cronPattern
+    ) {
       await this.scheduleRecurringChannelPoll(id, updateData.cronPattern);
-      console.log(`✅ Updated recurring job for channel: ${channel.name} (${updateData.cronPattern})`);
+      console.log(
+        `✅ Updated recurring job for channel: ${channel.name} (${updateData.cronPattern})`,
+      );
     }
 
     return channel;
@@ -156,4 +173,4 @@ export class ChannelsService {
       `✅ Manually triggered poll for channel ${channelId}, Job ID: ${job.id}`,
     );
   }
-} 
+}

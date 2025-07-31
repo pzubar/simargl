@@ -1,15 +1,26 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { Job, Queue } from 'bullmq';
+import { Job, Queue, Worker } from 'bullmq';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Content } from '../schemas/content.schema';
-import { Prompt } from '../schemas/prompt.schema';
-import { Channel } from '../schemas/channel.schema';
 import { VideoAnalysisService } from '../services/video-analysis.service';
-import { ConfigService } from '@nestjs/config';
+import { BullMQRateLimitService } from '../services/bullmq-rate-limit.service';
+import { EnhancedQuotaManagerService } from '../services/enhanced-quota-manager.service';
 import { Logger } from '@nestjs/common';
+import { ChannelsService } from '../channels/channels.service';
 
-@Processor('analysis')
+export type AnalysisQueueData = Queue<
+  { contentId: string; hasMetadata: boolean },
+  any,
+  string
+>;
+
+@Processor('analysis', {
+  limiter: {
+    max: 5, // Conservative rate limit for full video analysis
+    duration: 60000, // 1 minute
+  },
+})
 export class AnalysisProcessor extends WorkerHost {
   private readonly logger = new Logger(AnalysisProcessor.name);
 
@@ -19,12 +30,11 @@ export class AnalysisProcessor extends WorkerHost {
 
   constructor(
     @InjectModel(Content.name) private contentModel: Model<Content>,
-    @InjectModel(Prompt.name) private promptModel: Model<Prompt>,
-    @InjectModel(Channel.name) private channelModel: Model<Channel>,
     @InjectQueue('stats') private statsQueue: Queue,
-    @InjectQueue('analysis') private analysisQueue: Queue,
-    private configService: ConfigService,
     private videoAnalysisService: VideoAnalysisService,
+    private rateLimitService: BullMQRateLimitService,
+    private quotaManager: EnhancedQuotaManagerService,
+    private channelsService: ChannelsService,
   ) {
     super();
   }
@@ -92,9 +102,12 @@ export class AnalysisProcessor extends WorkerHost {
     );
   }
 
-  async process(job: Job<any, any, string>): Promise<any> {
+  async process(
+    job: Job<{ contentId: string; hasMetadata: boolean }, any, string>,
+  ): Promise<any> {
     const attemptNumber = job.attemptsMade;
     const maxAttempts = job.opts.attempts || 1;
+    let selectedModel: string | null = null; // Declare here for broader scope
 
     this.logger.log(
       `🔍 Analyzing content: ${job.data.contentId} (attempt ${attemptNumber + 1}/${maxAttempts})`,
@@ -102,12 +115,14 @@ export class AnalysisProcessor extends WorkerHost {
 
     const content = await this.contentModel.findById(job.data.contentId).exec();
 
-    if (!content) {
+    if (!content?.channelId) {
       this.logger.error(`❌ Content with id ${job.data.contentId} not found.`);
       return;
     }
 
-    const channel = await this.channelModel.findById(content.channelId).exec();
+    const channel = await this.channelsService.getChannelById(
+      content.channelId,
+    );
 
     if (!channel) {
       this.logger.error(`❌ Channel with id ${content.channelId} not found.`);
@@ -140,6 +155,29 @@ export class AnalysisProcessor extends WorkerHost {
         );
       }
 
+      // Pre-check quota and apply rate limiting if needed
+      const estimatedTokens = this.estimateTokensForVideo(
+        content,
+        existingMetadata,
+      );
+      selectedModel =
+        job.data.forceModel || (await this.selectBestModel(estimatedTokens));
+
+      if (selectedModel) {
+        const rateLimitResult = await this.rateLimitService.applyQuotaRateLimit(
+          this.worker,
+          selectedModel,
+          estimatedTokens,
+        );
+
+        if (rateLimitResult.applied) {
+          this.logger.warn(
+            `⏳ Pre-emptive rate limit applied for content ${content._id}: ${rateLimitResult.reason}`,
+          );
+          throw Worker.RateLimitError();
+        }
+      }
+
       // Pass existing metadata to analysis service
       const analysisResult =
         await this.videoAnalysisService.analyzeYouTubeVideo(
@@ -149,8 +187,9 @@ export class AnalysisProcessor extends WorkerHost {
           job.data.forceModel, // Pass through forced model if specified
         );
 
-      // todo: Handle case where analysisResult is null or undefined -- now it is completely broken
-      return;
+      if (!analysisResult) {
+        throw new Error('Analysis service returned null/undefined result');
+      }
       const { analysis, prompt, modelUsed, modelUsageStats } = analysisResult;
 
       // Check if analysis had overloaded chunks that might benefit from retry
@@ -234,11 +273,46 @@ export class AnalysisProcessor extends WorkerHost {
         return;
       }
 
+      // Handle quota and overload errors with rate limiting
+      if (this.isQuotaError(error)) {
+        const modelUsed = selectedModel || 'unknown';
+
+        // Use the rate limiting service to handle quota violations
+        const rateLimitResult =
+          await this.rateLimitService.handleQuotaViolation(
+            this.worker,
+            modelUsed,
+            error,
+          );
+
+        if (rateLimitResult.rateLimited) {
+          this.logger.warn(
+            `📊 Quota violation handled with rate limiting for model ${modelUsed}, retry in ${rateLimitResult.retryDelayMs}ms`,
+          );
+
+          // Update status to indicate retry is pending due to quota
+          await this.contentModel.updateOne(
+            { _id: content._id },
+            {
+              status: 'RETRY_PENDING',
+              lastError: `Quota exceeded: ${error.message}`,
+              retryCount: attemptNumber + 1,
+            },
+          );
+
+          // Throw RateLimitError to signal BullMQ about rate limiting
+          throw Worker.RateLimitError();
+        }
+      }
+
       // Handle overload errors with retry logic
       if (isOverload && attemptNumber < this.MAX_OVERLOAD_RETRIES) {
         this.logger.warn(
-          `🔄 Overload error detected. Will retry in ${this.calculateRetryDelay(attemptNumber)}ms (attempt ${attemptNumber + 1}/${this.MAX_OVERLOAD_RETRIES})`,
+          `🔄 Overload error detected. Applying rate limit and retrying (attempt ${attemptNumber + 1}/${this.MAX_OVERLOAD_RETRIES})`,
         );
+
+        // Apply rate limit for overload
+        await this.worker.rateLimit(this.calculateRetryDelay(attemptNumber));
 
         // Update status to indicate retry is pending
         await this.contentModel.updateOne(
@@ -250,8 +324,8 @@ export class AnalysisProcessor extends WorkerHost {
           },
         );
 
-        // Re-throw error to trigger BullMQ retry mechanism
-        throw error;
+        // Throw RateLimitError instead of generic error
+        throw Worker.RateLimitError();
       } else {
         // Mark as failed if not retryable or max retries exceeded
         const reason = isOverload
@@ -281,5 +355,63 @@ export class AnalysisProcessor extends WorkerHost {
    */
   private calculateRetryDelay(attemptNumber: number): number {
     return this.OVERLOAD_RETRY_DELAY_BASE * Math.pow(2, attemptNumber);
+  }
+
+  /**
+   * Estimate token count for full video analysis
+   */
+  private estimateTokensForVideo(content: any, metadata: any): number {
+    const baseTokens = 10000; // Base tokens for system prompts and structure
+
+    // Add tokens based on video duration if available
+    const durationTokens = metadata?.duration
+      ? Math.ceil(metadata.duration * 100)
+      : 30000; // Default for ~5min video
+
+    // Add tokens based on description and title
+    const textTokens = content.title
+      ? this.quotaManager.estimateTokenCount(
+          content.title + ' ' + (content.description || ''),
+        )
+      : 1000;
+
+    return (
+      baseTokens + Math.min(durationTokens, 50000) + Math.min(textTokens, 5000)
+    );
+  }
+
+  /**
+   * Select the best available model for analysis
+   */
+  private async selectBestModel(
+    estimatedTokens: number,
+  ): Promise<string | null> {
+    const modelResult =
+      await this.quotaManager.findBestAvailableModel(estimatedTokens);
+    return modelResult.model;
+  }
+
+  /**
+   * Check if error is quota-related
+   */
+  private isQuotaError(error: any): boolean {
+    if (error.status === 429 || error.code === 429) {
+      return true;
+    }
+
+    const errorMessage = error?.message || error?.error?.message || '';
+    const quotaKeywords = [
+      'quota',
+      'RESOURCE_EXHAUSTED',
+      'Too Many Requests',
+      'exceeded your current quota',
+      'GenerateContentInputTokensPerModelPerMinute',
+      'GenerateContentInputTokensPerModelPerDay',
+      'QuotaFailure',
+    ];
+
+    return quotaKeywords.some((keyword) =>
+      errorMessage.toLowerCase().includes(keyword.toLowerCase()),
+    );
   }
 }

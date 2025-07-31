@@ -1,5 +1,5 @@
 import { Processor, WorkerHost, InjectQueue } from '@nestjs/bullmq';
-import { Job, Queue } from 'bullmq';
+import { Job, Queue, Worker } from 'bullmq';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { VideoChunk } from '../schemas/video-chunk.schema';
@@ -8,9 +8,15 @@ import { Prompt } from '../schemas/prompt.schema';
 import { VideoAnalysisService } from '../services/video-analysis.service';
 import { VideoCombinationService } from '../services/video-combination.service';
 import { EnhancedQuotaManagerService as QuotaManagerService } from '../services/enhanced-quota-manager.service';
+import { BullMQRateLimitService } from '../services/bullmq-rate-limit.service';
 import { Logger } from '@nestjs/common';
 
-@Processor('chunk-analysis')
+@Processor('chunk-analysis', {
+  limiter: {
+    max: 10, // Base rate limit
+    duration: 60000, // 1 minute
+  },
+})
 export class ChunkAnalysisProcessor extends WorkerHost {
   private readonly logger = new Logger(ChunkAnalysisProcessor.name);
 
@@ -21,6 +27,7 @@ export class ChunkAnalysisProcessor extends WorkerHost {
     private videoAnalysisService: VideoAnalysisService,
     private videoCombinationService: VideoCombinationService,
     private enhancedQuotaManager: QuotaManagerService,
+    private rateLimitService: BullMQRateLimitService,
     @InjectQueue('combination') private combinationQueue: Queue,
   ) {
     super();
@@ -43,6 +50,27 @@ export class ChunkAnalysisProcessor extends WorkerHost {
     );
 
     try {
+      // Pre-check quota and apply rate limiting if needed
+      const estimatedTokens = this.estimateTokensForChunk(chunkData, videoInfo);
+      const selectedModel =
+        forceModel || (await this.selectBestModel(estimatedTokens));
+
+      if (selectedModel) {
+        const rateLimitResult = await this.rateLimitService.applyQuotaRateLimit(
+          this.worker,
+          selectedModel,
+          estimatedTokens,
+        );
+
+        if (rateLimitResult.applied) {
+          // Throw RateLimitError to signal BullMQ that this is a rate limit issue
+          this.logger.warn(
+            `⏳ Pre-emptive rate limit applied for chunk ${chunkData.chunkIndex + 1}: ${rateLimitResult.reason}`,
+          );
+          throw Worker.RateLimitError();
+        }
+      }
+
       // Get the prompt
       const prompt = await this.promptModel.findById(promptId).exec();
       if (!prompt) {
@@ -82,51 +110,46 @@ export class ChunkAnalysisProcessor extends WorkerHost {
           status: result.isModelOverloaded ? 503 : 429, // Assume quota exhaustion if not overloaded
         };
 
-        // Enhanced error handling with quota parsing
+        // Enhanced error handling with BullMQ rate limiting
         if (this.isQuotaExhaustedError(error)) {
-          // Use enhanced quota manager to parse error details
-          const parsedError = this.enhancedQuotaManager.parseQuotaError(error);
           const modelUsed = result.modelUsed || forceModel || 'unknown';
-          
-          if (parsedError?.isRpdViolation) {
-            // RPD violation - don't retry today
-            this.logger.error(
-              `🛑 Daily quota exceeded for chunk ${chunkData.chunkIndex + 1} using model ${modelUsed}. Marking as permanently failed for today.`,
+
+          // Use the rate limiting service to handle quota violations
+          const rateLimitResult =
+            await this.rateLimitService.handleQuotaViolation(
+              this.worker,
+              modelUsed,
+              error,
             );
-            await this.enhancedQuotaManager.recordQuotaViolation(modelUsed, error);
-            throw new Error(`Daily quota exhausted: ${result.error}`);
-          } else if (parsedError?.isRpmViolation && parsedError.retryDelaySeconds > 0) {
-            // RPM violation with retry delay
+
+          if (rateLimitResult.rateLimited) {
             this.logger.warn(
-              `📊 RPM quota exhausted for chunk ${chunkData.chunkIndex + 1} using model ${modelUsed}. Will retry after ${parsedError.retryDelaySeconds}s`,
+              `📊 Quota violation handled with rate limiting for model ${modelUsed}, retry in ${rateLimitResult.retryDelayMs}ms`,
             );
-            await this.enhancedQuotaManager.recordQuotaViolation(modelUsed, error);
-            throw new Error(`RPM quota exhausted, retry in ${parsedError.retryDelaySeconds}s: ${result.error}`);
-          } else {
-            // Generic quota exhaustion
-            this.logger.warn(`📊 Quota exhausted for model ${modelUsed} - will retry chunk later`);
-            await this.enhancedQuotaManager.recordQuotaViolation(modelUsed, error);
-            throw new Error(`Quota exhausted: ${result.error}`);
+
+            // Throw RateLimitError to signal BullMQ about rate limiting
+            throw Worker.RateLimitError();
           }
         } else if (this.isModelOverloadedError(error)) {
-          this.logger.warn(`📊 Model overloaded - will retry chunk later`);
-          throw new Error(`Model overloaded: ${result.error}`);
-        } else if (attemptNumber + 1 >= maxAttempts) {
-          // Only mark as non-retryable if we've exhausted all attempts
-          this.logger.error(
-            `❌ Analysis failed permanently for chunk ${chunkData.chunkIndex + 1} after ${maxAttempts} attempts: ${result.error}`,
-          );
-          throw new Error(`Non-retryable error: ${result.error}`);
-        } else {
-          // Retry for other errors (parsing failures, network issues, etc.)
-          this.logger.warn(
-            `⚠️ Chunk analysis failed (attempt ${attemptNumber + 1}/${maxAttempts}), will retry: ${result.error}`,
-          );
-          throw new Error(`Retryable error: ${result.error}`);
+          this.logger.warn(`📊 Model overloaded - applying rate limit`);
+
+          // Apply a shorter rate limit for model overload
+          await this.worker.rateLimit(30000); // 30 seconds
+          throw Worker.RateLimitError();
         }
+
+        // For other errors, throw normally to trigger standard retry
+        throw new Error(result.error);
       }
 
-      // Save the successful result to database
+      // Success case - record the request and save chunk
+      if (result.modelUsed) {
+        await this.enhancedQuotaManager.recordRequest(
+          result.modelUsed,
+          result.tokensUsed || estimatedTokens,
+        );
+      }
+
       const chunkDocument = await this.saveChunkToDatabase(
         contentId,
         result,
@@ -134,14 +157,38 @@ export class ChunkAnalysisProcessor extends WorkerHost {
       );
 
       this.logger.log(
-        `✅ Successfully analyzed chunk ${chunkData.chunkIndex + 1} for content ${contentId}`,
+        `✅ Successfully analyzed chunk ${chunkData.chunkIndex + 1}/${chunkData.totalChunks} for content ${contentId}`,
       );
 
-      // Check if all chunks are complete and auto-trigger combination if needed
-      await this.checkAndAutoTriggerCombination(contentId);
+      // Check if this was the last chunk
+      if (chunkData.chunkIndex + 1 === chunkData.totalChunks) {
+        this.logger.log(
+          `🎯 Last chunk completed for content ${contentId}. Triggering combination job.`,
+        );
+
+        await this.combinationQueue.add(
+          'combination',
+          { contentId, forceModel },
+          {
+            delay: 2000, // Small delay to ensure all chunks are saved
+            attempts: 5,
+            backoff: {
+              type: 'exponential',
+              delay: 30000,
+            },
+            removeOnComplete: 10,
+            removeOnFail: 20,
+          },
+        );
+      }
 
       return { success: true, chunkId: chunkDocument._id };
     } catch (error) {
+      // If this is a RateLimitError, don't log as an exception
+      if (error instanceof Error && error.name === 'RateLimitError') {
+        throw error; // Re-throw to let BullMQ handle it
+      }
+
       this.logger.error(
         `❌ Exception during chunk analysis ${chunkData.chunkIndex + 1} for content ${contentId}: ${error.message}`,
       );
@@ -173,6 +220,35 @@ export class ChunkAnalysisProcessor extends WorkerHost {
       // Re-throw to trigger BullMQ retry
       throw error;
     }
+  }
+
+  /**
+   * Estimate token count for a video chunk
+   */
+  private estimateTokensForChunk(chunkData: any, videoInfo: any): number {
+    // Base estimation for video chunk processing
+    const baseTokens = 5000; // Base tokens for system prompts and structure
+
+    // Add tokens based on chunk duration (longer chunks = more content)
+    const durationTokens = Math.ceil(chunkData.duration * 50); // ~50 tokens per second
+
+    // Add tokens based on video metadata if available
+    const metadataTokens = videoInfo?.description
+      ? this.enhancedQuotaManager.estimateTokenCount(videoInfo.description)
+      : 500;
+
+    return baseTokens + durationTokens + Math.min(metadataTokens, 2000); // Cap metadata tokens
+  }
+
+  /**
+   * Select the best available model for processing
+   */
+  private async selectBestModel(
+    estimatedTokens: number,
+  ): Promise<string | null> {
+    const modelResult =
+      await this.enhancedQuotaManager.findBestAvailableModel(estimatedTokens);
+    return modelResult.model;
   }
 
   private async saveChunkToDatabase(
@@ -303,11 +379,14 @@ export class ChunkAnalysisProcessor extends WorkerHost {
    * Check if all chunks are complete and auto-trigger combination if ready
    * This separates automatic combination (after chunk completion) from manual combination
    */
-  private async checkAndAutoTriggerCombination(contentId: string): Promise<void> {
+  private async checkAndAutoTriggerCombination(
+    contentId: string,
+  ): Promise<void> {
     try {
       // Check combination status
-      const status = await this.videoCombinationService.getCombinationStatus(contentId);
-      
+      const status =
+        await this.videoCombinationService.getCombinationStatus(contentId);
+
       this.logger.log(
         `📊 Combination status for content ${contentId}: ${status.status} - ${status.completedChunks}/${status.expectedChunks} completed, ${status.failedChunks} failed`,
       );
@@ -317,7 +396,7 @@ export class ChunkAnalysisProcessor extends WorkerHost {
         this.logger.log(
           `🚀 All chunks ready for content ${contentId}, queuing combination job...`,
         );
-        
+
         // Queue the combination job with quota-aware processing
         const combinationJob = await this.combinationQueue.add(
           'combine-chunks',
@@ -334,9 +413,9 @@ export class ChunkAnalysisProcessor extends WorkerHost {
             removeOnComplete: 5,
             removeOnFail: 10,
             // Custom delay handling for quota limits will be done in the processor
-          }
+          },
         );
-        
+
         this.logger.log(
           `✅ Combination job queued for content ${contentId} (Job ID: ${combinationJob.id})`,
         );

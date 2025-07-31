@@ -28,7 +28,7 @@ export class StatsProcessor extends WorkerHost {
   async process(job: Job<any, any, string>): Promise<any> {
     console.log(`Updating stats for content: ${job.data.contentId}`);
     const content = await this.contentModel.findById(job.data.contentId).exec();
-    
+
     if (!content) {
       console.error(`Content with id ${job.data.contentId} not found.`);
       return;
@@ -56,7 +56,10 @@ export class StatsProcessor extends WorkerHost {
         await content.save();
       }
     } catch (error) {
-      console.error(`Failed to fetch stats for ${content.sourceContentId}`, error);
+      console.error(
+        `Failed to fetch stats for ${content.sourceContentId}`,
+        error,
+      );
     }
 
     return {};
