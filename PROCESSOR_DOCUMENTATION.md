@@ -120,7 +120,7 @@ This separates concerns and uses business-focused naming that reflects the actua
 **Business Purpose**: Periodically check for videos ready for insight gathering and queue appropriate jobs
 
 **Queue**: `video-readiness`
-**Trigger**: Scheduled every 2-5 minutes
+**Trigger**: Scheduled every 5 minutes
 **Input**: `{ batchSize?: number }`
 
 **Workflow**:
@@ -155,7 +155,8 @@ This separates concerns and uses business-focused naming that reflects the actua
 2. Extracts insights from video chunk using `VideoInsightService.gatherChunkInsights()`
 3. Saves insights to `VideoInsight` collection (better than "VideoChunk")
 4. Checks if all insights gathered for video
-5. If complete, queues `research-answering` job
+5. If complete, updates video status to `INSIGHTS_GATHERED`
+6. **Does NOT queue research jobs** (decoupling improvement)
 
 **Rate Limits**: Conservative (10 req/min) - AI processing
 **Dependencies**: VideoInsightService, VideoInsight model, quota management
@@ -164,33 +165,61 @@ This separates concerns and uses business-focused naming that reflects the actua
 - Business-focused naming (insights vs. analysis)
 - Clear purpose (gathering insights for research)
 - Better error handling with insight-level retries
+- Decoupled from research processing (Research Scheduler handles research jobs)
 
 ---
 
-### 6. Research Question Answering Processor (`research-question-answering.processor.ts`)
+### 6. Research Scheduler Processor (`research-scheduler.processor.ts`) 🆕
+*New processor for decoupled research prompt scheduling*
+
+**Business Purpose**: Periodically find videos with gathered insights and schedule research prompt processing
+
+**Queue**: `research-scheduling`
+**Trigger**: Scheduled every 5-10 minutes
+**Input**: `{ batchSize?: number, promptId?: string }`
+
+**Workflow**:
+1. Finds videos with status `INSIGHTS_GATHERED`
+2. Retrieves available research prompts from database
+3. For each video-prompt combination not yet processed:
+   - Queues `research-processing` job
+   - Records scheduling in research tracking
+
+**Rate Limits**: Standard (database operations only)
+**Dependencies**: Content model, Prompt model, research tracking
+
+**Benefits**:
+- ✅ Supports multiple research prompts per video
+- ✅ Decouples insight gathering from research processing
+- ✅ Enables adding new prompts to existing videos
+- ✅ Flexible research workflow management
+
+---
+
+### 7. Research Prompt Processing Processor (`research-prompt-processing.processor.ts`)
 *Previously: `combination.processor.ts`*
 
-**Business Purpose**: Answer specific research questions by synthesizing gathered video insights
+**Business Purpose**: Process specific research prompts against video insights
 
-**Queue**: `research-answering`
-**Trigger**: When all insights gathered for a video
-**Input**: `{ contentId: string, forceModel?: string }`
+**Queue**: `research-processing`
+**Trigger**: When scheduled by Research Scheduler
+**Input**: `{ contentId: string, promptId: string, forceModel?: string }`
 
 **Workflow**:
 1. Pre-checks quota and applies rate limiting
 2. Retrieves all gathered insights for the video
-3. Uses `ResearchService.answerQuestions()` to synthesize insights with research prompts
-4. Saves research answers to content
-5. Updates status to `RESEARCH_COMPLETE`
-6. Schedules periodic performance tracking
+3. Retrieves specific research prompt
+4. Uses `ResearchService.processPrompt()` to synthesize insights with the prompt
+5. Saves research result to research tracking collection
+6. Does NOT change video status (stays `INSIGHTS_GATHERED`)
 
 **Rate Limits**: Moderate (8 req/min) - AI processing
-**Dependencies**: ResearchService, quota management
+**Dependencies**: ResearchService, quota management, research tracking
 
 **Key Improvements**:
-- Clear business purpose (answering research questions)
-- Better naming that reflects the synthesis nature
-- Focus on research outcomes rather than technical combination
+- Processes one prompt at a time (better granularity)
+- No video status changes (videos stay available for more research)
+- Research results tracked separately per prompt
 
 ---
 
@@ -241,7 +270,8 @@ This separates concerns and uses business-focused naming that reflects the actua
 | `MetadataProcessingProcessor` | `VideoMetadataGatheringProcessor` | Gather video metadata | `video-metadata` |
 | **[NEW]** | `VideoReadinessProcessor` | Check videos ready for insights | `video-readiness` |
 | `ChunkAnalysisProcessor` | `VideoInsightGatheringProcessor` | Extract insights from video chunks | `insight-gathering` |
-| `CombinationProcessor` | `ResearchQuestionAnsweringProcessor` | Answer research questions | `research-answering` |
+| **[NEW]** | `ResearchSchedulerProcessor` | Schedule research prompts for analyzed videos | `research-scheduling` |
+| `CombinationProcessor` | `ResearchPromptProcessingProcessor` | Process specific research prompts | `research-processing` |
 | `StatsProcessor` | `PerformanceTrackingProcessor` | Track performance metrics | `performance-tracking` |
 | `QuotaCleanupProcessor` | *(no change)* | Maintain quota system | `quota-cleanup` |
 | **[REMOVE]** | ~~`AnalysisProcessor`~~ | *(redundant)* | ~~`analysis`~~ |
@@ -265,14 +295,14 @@ This separates concerns and uses business-focused naming that reflects the actua
 
 ### Status Flow Improvements
 
-| Current Status | Proposed Status | Business Meaning |
-|----------------|-----------------|------------------|
-| `PENDING` | `DISCOVERED` | Video found but not yet initialized |
-| `PROCESSING` | `INITIALIZING` | Setting up video for insight gathering |
-| `METADATA_FETCHED` | `METADATA_READY` | Ready for insight extraction |
-| **[NEW]** | `INSIGHTS_QUEUED` | Insight gathering jobs scheduled |
-| `ANALYZED` | `INSIGHTS_GATHERED` | All insights extracted |
-| `COMPLETED` | `RESEARCH_COMPLETE` | Research questions answered |
+| Current Status | Proposed Status     | Business Meaning                                              |
+|----------------|---------------------|---------------------------------------------------------------|
+| `PENDING` | `DISCOVERED`        | Video found but not yet initialized                           |
+| `PROCESSING` | `INITIALIZING`      | Setting up video for insight gathering                        |
+| `METADATA_FETCHED` | `METADATA_READY`    | Ready for insight extraction                                  |
+| **[NEW]** | `INSIGHTS_QUEUED`   | Insight gathering jobs scheduled                              |
+| `ANALYZED` | `INSIGHTS_GATHERED` | All insights extracted - ready for research prompts         |
+| ~~`COMPLETED`~~ | **[REMOVED]**       | *(No single completion status - research is per-prompt)*     |
 
 ### Key Benefits of New Naming
 
@@ -471,24 +501,42 @@ graph TD
     X3 --> Y
     
     Y -->|No| Z[Wait for Remaining Insights]
-    Y -->|Yes| AA[Queue: research-answering]
+    Y -->|Yes| AA[Update Status: INSIGHTS_GATHERED]
+    AA --> AB[Video Ready for Research Prompts]
     
-    AA --> BB[Research Question Answering]
-    BB --> CC[Synthesize Insights with Research Prompts]
-    CC --> DD[Save Research Answers]
-    DD --> EE[Update Status: RESEARCH_COMPLETE]
-    EE --> FF[Schedule Periodic Video Performance Tracking]
+    AB --> AC{Periodic Research Scheduler}
+    AC --> AD[Find Videos with INSIGHTS_GATHERED Status]
+    AD --> AE[Get Available Research Prompts]
+    AE --> AF[Check Video-Prompt Combinations Not Yet Processed]
+    AF --> AG[Queue Multiple research-processing Jobs]
     
-    FF --> GG[Performance Tracking - Video Updates]
-    GG --> HH[Update Video Statistics Daily]
+    AG --> AH1[Research Prompt Processing 1]
+    AG --> AH2[Research Prompt Processing 2]
+    AG --> AH3[Research Prompt Processing N]
+    
+    AH1 --> AI1[Process Prompt 1 with Video Insights]
+    AH2 --> AI2[Process Prompt 2 with Video Insights]
+    AH3 --> AI3[Process Prompt N with Video Insights]
+    
+    AI1 --> AJ1[Save Research Result 1]
+    AI2 --> AJ2[Save Research Result 2]
+    AI3 --> AJ3[Save Research Result N]
+    
+    AJ1 --> AK[Research Results Available]
+    AJ2 --> AK
+    AJ3 --> AK
+    
+    AA --> AL[Schedule Periodic Video Performance Tracking]
+    AL --> AM[Performance Tracking - Video Updates]
+    AM --> AN[Update Video Statistics Daily]
     
     %% Channel-level performance tracking
-    II[Channel Performance Schedule] --> JJ[Performance Tracking - Channel Updates]
-    JJ --> KK[Update Channel Statistics]
+    AO[Channel Performance Schedule] --> AP[Performance Tracking - Channel Updates]
+    AP --> AQ[Update Channel Statistics]
     
     %% Maintenance
-    LL[Scheduled Daily] --> MM[Quota Cleanup]
-    MM --> NN[Clean Old Quota Data]
+    AR[Scheduled Daily] --> AS[Quota Cleanup]
+    AS --> AT[Clean Old Quota Data]
     
     %% Style the new decoupled architecture
     style Q fill:#ffffcc
@@ -504,14 +552,25 @@ graph TD
     style W2 fill:#ccffcc
     style W3 fill:#ccffcc
     
-    %% Style research answering
-    style BB fill:#aaffaa
-    style CC fill:#aaffaa
+    %% Style research scheduling (new decoupled flow)
+    style AC fill:#ffccff
+    style AD fill:#ffccff
+    style AE fill:#ffccff
+    style AF fill:#ffccff
+    style AG fill:#ffccff
+    
+    %% Style research processing (parallel per prompt)
+    style AH1 fill:#aaffaa
+    style AH2 fill:#aaffaa
+    style AH3 fill:#aaffaa
+    style AI1 fill:#aaffaa
+    style AI2 fill:#aaffaa
+    style AI3 fill:#aaffaa
     
     %% Style scheduling improvements
     style B fill:#ffeecc
-    style FF fill:#ffeecc
-    style II fill:#ffeecc
+    style AL fill:#ffeecc
+    style AO fill:#ffeecc
 ```
 
 ### Key Improvements
@@ -873,18 +932,18 @@ export class VideoInsightGatheringProcessor extends WorkerHost {
 
       this.logger.log(`📊 Insight ${chunkIndex + 1}/${totalChunks} gathered. Total completed: ${completedInsights}`);
 
-      // If all insights are gathered, queue research question answering
+      // If all insights are gathered, update video status (no direct research queueing)
       if (completedInsights >= totalChunks) {
-        this.logger.log(`🎯 All ${totalChunks} insights gathered for content ${contentId}. Queuing research answering.`);
+        this.logger.log(`🎯 All ${totalChunks} insights gathered for content ${contentId}. Video ready for research prompts.`);
         
-        await this.researchAnsweringQueue.add('answer-research-questions', {
-          contentId: contentId,
-        }, {
-          attempts: 5,
-          backoff: { type: 'exponential', delay: 30000 },
-          removeOnComplete: 10,
-          removeOnFail: 20,
-        });
+        // Update video status to INSIGHTS_GATHERED - Research Scheduler will handle research jobs
+        await this.contentModel.updateOne(
+          { _id: new Types.ObjectId(contentId) },
+          { 
+            status: 'INSIGHTS_GATHERED',
+            insightsGatheredAt: new Date(),
+          }
+        );
       }
 
       return { success: true, insightId: insightDocument._id };
@@ -913,39 +972,153 @@ export class VideoInsightGatheringProcessor extends WorkerHost {
 }
 ```
 
-### Step 5: Update Research Question Answering Processor
+### Step 5: Create Research Scheduler Processor (New)
 
-Rename and update the combination processor with business-focused naming:
+Create the new processor that handles research prompt scheduling:
 
 ```typescript
-// File: research-question-answering.processor.ts (renamed from combination.processor.ts)
-@Processor('research-answering', {
+// File: research-scheduler.processor.ts (NEW)
+@Processor('research-scheduling', {
+  limiter: {
+    max: 20, // Frequent checks allowed - database operations only
+    duration: 60000,
+  },
+})
+export class ResearchSchedulerProcessor extends WorkerHost {
+  private readonly logger = new Logger(ResearchSchedulerProcessor.name);
+
+  constructor(
+    @InjectModel(Content.name) private contentModel: Model<Content>,
+    @InjectModel(Prompt.name) private promptModel: Model<Prompt>,
+    @InjectModel(ResearchResult.name) private researchResultModel: Model<ResearchResult>, // New model
+    @InjectQueue('research-processing') private researchProcessingQueue: Queue,
+  ) {
+    super();
+  }
+
+  async process(job: Job<{ batchSize?: number; promptId?: string }>): Promise<any> {
+    const { batchSize = 10, promptId } = job.data;
+    
+    this.logger.log(`🔬 Scheduling research prompts (batch size: ${batchSize})`);
+
+    // Find videos with insights gathered
+    const readyVideos = await this.contentModel
+      .find({ status: 'INSIGHTS_GATHERED' })
+      .limit(batchSize)
+      .exec();
+
+    if (readyVideos.length === 0) {
+      this.logger.log(`📭 No videos ready for research processing`);
+      return { processedVideos: 0, queuedJobs: 0 };
+    }
+
+    // Get available research prompts
+    const prompts = promptId 
+      ? await this.promptModel.find({ _id: promptId }).exec()
+      : await this.promptModel.find({ isActive: true }).exec();
+
+    if (prompts.length === 0) {
+      this.logger.log(`📭 No active research prompts available`);
+      return { processedVideos: 0, queuedJobs: 0 };
+    }
+
+    this.logger.log(`📦 Found ${readyVideos.length} videos and ${prompts.length} prompts to process`);
+
+    let queuedJobs = 0;
+
+    for (const video of readyVideos) {
+      for (const prompt of prompts) {
+        try {
+          // Check if this video-prompt combination has already been processed
+          const existingResult = await this.researchResultModel.findOne({
+            contentId: video._id,
+            promptId: prompt._id,
+          }).exec();
+
+          if (existingResult) {
+            this.logger.debug(`⏭️ Skipping already processed: video ${video._id} + prompt ${prompt._id}`);
+            continue;
+          }
+
+          // Queue research processing job
+          await this.researchProcessingQueue.add('process-research-prompt', {
+            contentId: video._id.toString(),
+            promptId: prompt._id.toString(),
+            videoInfo: {
+              title: video.title,
+              description: video.description,
+              duration: video.metadata?.duration,
+              publishedAt: video.publishedAt,
+            }
+          }, {
+            attempts: 3,
+            backoff: { type: 'exponential', delay: 30000 },
+            removeOnComplete: 10,
+            removeOnFail: 20,
+          });
+
+          // Create placeholder research result to track scheduling
+          await this.researchResultModel.create({
+            contentId: video._id,
+            promptId: prompt._id,
+            status: 'QUEUED',
+            queuedAt: new Date(),
+          });
+
+          queuedJobs++;
+          
+        } catch (error) {
+          this.logger.error(`❌ Failed to queue research for video ${video._id} + prompt ${prompt._id}: ${error.message}`);
+        }
+      }
+    }
+
+    this.logger.log(`✅ Queued ${queuedJobs} research processing jobs for ${readyVideos.length} videos`);
+    
+    return { 
+      processedVideos: readyVideos.length,
+      queuedJobs: queuedJobs,
+      availablePrompts: prompts.length
+    };
+  }
+}
+```
+
+### Step 6: Update Research Prompt Processing Processor
+
+Rename and update the combination processor to handle individual research prompts:
+
+```typescript
+// File: research-prompt-processing.processor.ts (renamed from combination.processor.ts)
+@Processor('research-processing', {
   limiter: {
     max: 8, // Moderate rate limit for research tasks
     duration: 60000, // 1 minute
   },
 })
-export class ResearchQuestionAnsweringProcessor extends WorkerHost {
-  private readonly logger = new Logger(ResearchQuestionAnsweringProcessor.name);
+export class ResearchPromptProcessingProcessor extends WorkerHost {
+  private readonly logger = new Logger(ResearchPromptProcessingProcessor.name);
 
   constructor(
     @InjectModel(Content.name) private contentModel: Model<Content>,
+    @InjectModel(Prompt.name) private promptModel: Model<Prompt>,
+    @InjectModel(VideoInsight.name) private videoInsightModel: Model<VideoInsight>,
+    @InjectModel(ResearchResult.name) private researchResultModel: Model<ResearchResult>,
     private researchService: ResearchService, // Renamed from VideoCombinationService
     private quotaManager: QuotaManagerService,
     private rateLimitService: BullMQRateLimitService,
-    @InjectQueue('performance-tracking') private performanceTrackingQueue: Queue, // Renamed from stats
   ) {
     super();
   }
 
-  async process(job: Job<{ contentId: string; forceModel?: string }>): Promise<any> {
-    const { contentId, forceModel } = job.data;
+  async process(job: Job<{ contentId: string; promptId: string; forceModel?: string }>): Promise<any> {
+    const { contentId, promptId, forceModel } = job.data;
 
-    this.logger.log(`🔬 Answering research questions for content ${contentId}`);
+    this.logger.log(`🔬 Processing research prompt ${promptId} for content ${contentId}`);
 
     try {
       // Pre-check quota and apply rate limiting
-      const estimatedTokens = 50000; // Conservative estimate for research answering
+      const estimatedTokens = 30000; // Conservative estimate for single prompt processing
       let selectedModel = forceModel;
       
       if (!selectedModel) {
@@ -961,90 +1134,216 @@ export class ResearchQuestionAnsweringProcessor extends WorkerHost {
         );
         
         if (rateLimitResult.applied) {
-          this.logger.warn(`⏳ Pre-emptive rate limit applied for research answering ${contentId}: ${rateLimitResult.reason}`);
+          this.logger.warn(`⏳ Pre-emptive rate limit applied for research processing ${contentId}+${promptId}: ${rateLimitResult.reason}`);
           throw Worker.RateLimitError();
         }
       }
 
-      // Get content and prepare for research answering
-      const content = await this.contentModel.findById(contentId).exec();
-      if (!content) {
-        throw new Error(`Content ${contentId} not found`);
-      }
+      // Get content, prompt, and insights
+      const [content, prompt, insights] = await Promise.all([
+        this.contentModel.findById(contentId).exec(),
+        this.promptModel.findById(promptId).exec(),
+        this.videoInsightModel.find({ 
+          contentId: new Types.ObjectId(contentId),
+          status: 'INSIGHTS_GATHERED'
+        }).exec()
+      ]);
 
-      const videoInfo = {
-        title: content.title || 'Video',
-        description: content.description || '',
-        duration: content.metadata?.duration || 0,
-        channel: content.metadata?.channel || 'Unknown',
-        view_count: content.metadata?.viewCount || 0,
-        upload_date: content.publishedAt,
-      };
+      if (!content) throw new Error(`Content ${contentId} not found`);
+      if (!prompt) throw new Error(`Prompt ${promptId} not found`);
+      if (!insights || insights.length === 0) throw new Error(`No insights found for content ${contentId}`);
 
-      // Answer research questions using gathered insights
-      const researchAnswers = await this.researchService.answerResearchQuestions(
-        contentId,
-        videoInfo,
+      // Process specific research prompt with gathered insights
+      const researchResult = await this.researchService.processPrompt(
+        prompt,
+        insights,
+        {
+          title: content.title,
+          description: content.description,
+          duration: content.metadata?.duration,
+          publishedAt: content.publishedAt,
+        },
         selectedModel,
       );
 
-      if (!researchAnswers) {
-        throw new Error('Research question answering failed - no result returned');
+      if (!researchResult) {
+        throw new Error('Research prompt processing failed - no result returned');
       }
 
-      // Record quota usage for the model used
+      // Record quota usage
       if (selectedModel) {
-        await this.quotaManager.recordRequest(selectedModel, 5000); // Estimated tokens for research
+        await this.quotaManager.recordRequest(selectedModel, 3000); // Estimated tokens for single prompt
       }
 
-      // Update content status with research results
-      await this.contentModel.updateOne(
-        { _id: contentId },
+      // Save research result
+      await this.researchResultModel.updateOne(
+        { contentId: new Types.ObjectId(contentId), promptId: new Types.ObjectId(promptId) },
         {
-          status: 'RESEARCH_COMPLETE',
-          completedAt: new Date(),
-          'research.answers': researchAnswers,
-          'research.modelUsed': selectedModel,
-          'research.answeredAt': new Date(),
+          status: 'COMPLETED',
+          result: researchResult,
+          modelUsed: selectedModel,
+          processedAt: new Date(),
+          tokensUsed: 3000, // Estimate or actual if available
         },
+        { upsert: true }
       );
 
-      // Schedule periodic performance tracking for this video
-      await this.scheduleVideoPerformanceTracking(contentId);
-
-      this.logger.log(`✅ Research questions answered for content ${contentId} using model ${selectedModel}`);
+      this.logger.log(`✅ Research prompt ${promptId} processed for content ${contentId} using model ${selectedModel}`);
       
       return {
         success: true,
         contentId,
-        answeredAt: new Date(),
+        promptId,
+        processedAt: new Date(),
         modelUsed: selectedModel || 'auto-selected',
       };
     } catch (error) {
-      // Handle quota and other errors similar to previous processors
-      this.logger.error(`❌ Research answering failed for content ${contentId}: ${error.message}`);
+      // Update research result with error
+      await this.researchResultModel.updateOne(
+        { contentId: new Types.ObjectId(contentId), promptId: new Types.ObjectId(promptId) },
+        {
+          status: 'FAILED',
+          error: error.message,
+          failedAt: new Date(),
+        },
+        { upsert: true }
+      );
+
+      this.logger.error(`❌ Research prompt processing failed for ${contentId}+${promptId}: ${error.message}`);
       throw error;
     }
-  }
-
-  private async scheduleVideoPerformanceTracking(contentId: string) {
-    // Schedule daily performance tracking for this specific video
-    await this.performanceTrackingQueue.add(
-      'track-video-performance',
-      { contentId, type: 'video' },
-      {
-        repeat: { cron: '0 12 * * *' }, // Daily at noon
-        jobId: `video-performance-${contentId}`, // Unique job ID
-        removeOnComplete: 5, // Keep fewer completed tracking jobs
-      }
-    );
-
-    this.logger.log(`✅ Scheduled daily performance tracking for video ${contentId}`);
   }
 }
 ```
 
-### Step 6: Update Channels Service
+### Step 7: Schedule Research Scheduler Processor
+
+Add periodic scheduling for the Research Scheduler:
+
+```typescript
+// In app startup or channels service
+async scheduleResearchProcessing() {
+  // Schedule research scheduler every 7 minutes
+  await this.researchSchedulingQueue.add(
+    'schedule-research',
+    { batchSize: 15 }, // Process up to 15 videos per check
+    { 
+      repeat: { cron: '*/7 * * * *' }, // Every 7 minutes
+      jobId: 'research-scheduler' // Unique job ID to prevent duplicates
+    }
+  );
+
+  this.logger.log(`✅ Scheduled periodic research scheduling`);
+}
+```
+
+### Step 8: Create ResearchResult Data Model
+
+Add new data model to track research results per video-prompt combination:
+
+```typescript
+// File: research-result.schema.ts (NEW)
+import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
+import { Document, Types } from 'mongoose';
+
+@Schema({ timestamps: true })
+export class ResearchResult extends Document {
+  @Prop({ type: Types.ObjectId, ref: 'Content', required: true, index: true })
+  contentId: Types.ObjectId;
+
+  @Prop({ type: Types.ObjectId, ref: 'Prompt', required: true, index: true })
+  promptId: Types.ObjectId;
+
+  @Prop({ 
+    type: String, 
+    enum: ['QUEUED', 'PROCESSING', 'COMPLETED', 'FAILED'], 
+    default: 'QUEUED',
+    index: true 
+  })
+  status: string;
+
+  @Prop({ type: Object }) // The actual research result/answer
+  result?: any;
+
+  @Prop({ type: String }) // Model used for processing
+  modelUsed?: string;
+
+  @Prop({ type: Number }) // Tokens consumed
+  tokensUsed?: number;
+
+  @Prop({ type: Date }) // When job was queued
+  queuedAt?: Date;
+
+  @Prop({ type: Date }) // When processing completed
+  processedAt?: Date;
+
+  @Prop({ type: Date }) // When processing failed
+  failedAt?: Date;
+
+  @Prop({ type: String }) // Error message if failed
+  error?: string;
+}
+
+export const ResearchResultSchema = SchemaFactory.createForClass(ResearchResult);
+
+// Compound index for efficient video-prompt lookups
+ResearchResultSchema.index({ contentId: 1, promptId: 1 }, { unique: true });
+```
+
+### Step 9: Update Module Configuration
+
+Update tasks.module.ts with new processors and models:
+
+```typescript
+// In tasks.module.ts
+import { ResearchResult, ResearchResultSchema } from '../schemas/research-result.schema';
+import { ResearchSchedulerProcessor } from './research-scheduler.processor';
+import { ResearchPromptProcessingProcessor } from './research-prompt-processing.processor';
+
+@Module({
+  imports: [
+    MongooseModule.forFeature([
+      { name: Channel.name, schema: ChannelSchema },
+      { name: Content.name, schema: ContentSchema },
+      { name: Prompt.name, schema: PromptSchema },
+      { name: VideoInsight.name, schema: VideoInsightSchema }, // Renamed from VideoChunk
+      { name: ResearchResult.name, schema: ResearchResultSchema }, // NEW model
+      { name: QuotaUsage.name, schema: QuotaUsageSchema },
+      { name: QuotaViolation.name, schema: QuotaViolationSchema },
+    ]),
+    BullModule.registerQueue(
+      { name: 'channel-monitoring' }, // Renamed from 'channel-poll'
+      { name: 'video-discovery' }, // Renamed from 'content-processing'
+      { name: 'video-metadata' }, // Renamed from 'metadata-processing'
+      { name: 'video-readiness' }, // NEW queue
+      { name: 'insight-gathering' }, // Renamed from 'chunk-analysis'
+      { name: 'research-scheduling' }, // NEW queue
+      { name: 'research-processing' }, // Renamed from 'combination'
+      { name: 'performance-tracking' }, // Renamed from 'stats'
+      { name: 'quota-cleanup' }, // No change
+    ),
+  ],
+  providers: [
+    ChannelMonitoringProcessor, // Renamed
+    VideoDiscoveryProcessor, // Renamed
+    VideoMetadataGatheringProcessor, // Renamed
+    VideoReadinessProcessor, // NEW
+    VideoInsightGatheringProcessor, // Renamed
+    ResearchSchedulerProcessor, // NEW
+    ResearchPromptProcessingProcessor, // Renamed
+    PerformanceTrackingProcessor, // Renamed
+    QuotaCleanupProcessor, // No change
+    // Services
+    VideoInsightService, // Renamed from VideoAnalysisService
+    ResearchService, // Renamed from VideoCombinationService
+    QuotaManagerService,
+    BullMQRateLimitService,
+  ],
+})
+export class TasksModule {}
+```
+
+### Step 10: Update Channels Service
 
 Add proper scheduling when channels are added:
 
@@ -1179,4 +1478,38 @@ After migration, you should see:
 - ✅ **Intelligent Load Management**: Video Readiness Processor controls flow
 - ✅ **Proper Scheduling**: Automated channel and video performance tracking
 
-This new architecture addresses all the user's requirements: better naming that reflects business purpose, separation of metadata processing from insight scheduling, and clear workflow progression from video discovery to research question answering.
+## Advanced Research Architecture Benefits
+
+### Multiple Research Prompts per Video
+- ✅ **Flexible Research**: Videos can be analyzed with multiple different research prompts
+- ✅ **Independent Processing**: Each prompt processes independently - failures don't affect others
+- ✅ **Retroactive Research**: New prompts can be applied to existing analyzed videos
+- ✅ **Granular Tracking**: Track completion status per video-prompt combination
+
+### Scalable Research Workflow
+- ✅ **Decoupled Scheduling**: Research Scheduler runs independently from insight gathering
+- ✅ **Batch Processing**: Process multiple videos and prompts efficiently
+- ✅ **Resource Management**: Better control over AI processing loads
+- ✅ **Status Tracking**: Clear visibility into which research is complete/pending
+
+### Business Intelligence Capabilities
+- ✅ **Research Dashboard**: Can show completion matrix (videos × prompts)
+- ✅ **Progressive Research**: Start with core prompts, add specialized ones later
+- ✅ **Research Campaigns**: Run different research questions across video collections
+- ✅ **Performance Analytics**: Track which prompts provide best insights
+
+### Data Model Advantages
+
+The new `ResearchResult` model provides:
+```typescript
+// Query all research for a video
+const videoResearch = await ResearchResult.find({ contentId: videoId });
+
+// Query specific prompt across all videos  
+const promptResults = await ResearchResult.find({ promptId: promptId, status: 'COMPLETED' });
+
+// Find videos that need specific research
+const pendingResearch = await ResearchResult.find({ promptId: promptId, status: 'QUEUED' });
+```
+
+This architecture transforms the system from "one analysis per video" to "multiple research perspectives per video" - much more powerful for business intelligence!
