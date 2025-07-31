@@ -8,13 +8,20 @@ import { AdminModule } from './admin/admin.module';
 import { ApiController, RootController } from './api.controller';
 import { ApiService } from './api.service';
 import { EnhancedQuotaManagerService as QuotaManagerService } from './services/enhanced-quota-manager.service';
-import { VideoCombinationService } from './services/video-combination.service';
+import { ResearchService } from './services/research.service';
 
 // Import Schemas for global registration
 import { Channel, ChannelSchema } from './schemas/channel.schema';
 import { Content, ContentSchema } from './schemas/content.schema';
 import { Prompt, PromptSchema } from './schemas/prompt.schema';
-import { VideoChunk, VideoChunkSchema } from './schemas/video-chunk.schema';
+import {
+  VideoInsight,
+  VideoInsightSchema,
+} from './schemas/video-insight.schema';
+import {
+  ResearchResult,
+  ResearchResultSchema,
+} from './schemas/research-result.schema';
 import { QuotaUsage, QuotaUsageSchema } from './schemas/quota-usage.schema';
 import {
   QuotaViolation,
@@ -23,7 +30,7 @@ import {
 import { BullBoardModule } from '@bull-board/nestjs';
 import { ExpressAdapter } from '@bull-board/express';
 import { BullMQAdapter } from '@bull-board/api/bullMQAdapter';
-import { VideoAnalysisService } from './services/video-analysis.service';
+import { VideoInsightService } from './services/video-insight.service';
 import { BullMQRateLimitService } from './services/bullmq-rate-limit.service';
 
 @Module({
@@ -45,7 +52,8 @@ import { BullMQRateLimitService } from './services/bullmq-rate-limit.service';
       { name: Channel.name, schema: ChannelSchema },
       { name: Content.name, schema: ContentSchema },
       { name: Prompt.name, schema: PromptSchema },
-      { name: VideoChunk.name, schema: VideoChunkSchema },
+      { name: VideoInsight.name, schema: VideoInsightSchema },
+      { name: ResearchResult.name, schema: ResearchResultSchema },
       { name: QuotaUsage.name, schema: QuotaUsageSchema },
       { name: QuotaViolation.name, schema: QuotaViolationSchema },
     ]),
@@ -62,17 +70,13 @@ import { BullMQRateLimitService } from './services/bullmq-rate-limit.service';
       inject: [ConfigService],
     }),
 
-    // Register all queues for API service and Bull Board monitoring
-    BullModule.registerQueue(
-      { name: 'channel-poll' },
-      { name: 'content-processing' },
-      { name: 'metadata-processing' },
-      { name: 'analysis' },
-      { name: 'chunk-analysis' },
-      { name: 'stats' },
-      { name: 'combination' },
-      { name: 'quota-cleanup' },
-    ),
+    // Register queues for services and controllers used in AppModule
+    BullModule.registerQueue({ name: 'quota-cleanup' }),
+    BullModule.registerQueue({ name: 'video-metadata' }),
+    BullModule.registerQueue({ name: 'insight-gathering' }),
+    BullModule.registerQueue({ name: 'research-processing' }),
+    BullModule.registerQueue({ name: 'video-discovery' }),
+    BullModule.registerQueue({ name: 'channel-monitoring' }),
 
     BullBoardModule.forRoot({
       route: '/queues',
@@ -80,37 +84,32 @@ import { BullMQRateLimitService } from './services/bullmq-rate-limit.service';
     }),
 
     BullBoardModule.forFeature({
-      name: 'channel-poll',
+      name: 'channel-monitoring',
       adapter: BullMQAdapter,
     }),
 
     BullBoardModule.forFeature({
-      name: 'content-processing',
+      name: 'video-discovery',
       adapter: BullMQAdapter,
     }),
 
     BullBoardModule.forFeature({
-      name: 'metadata-processing',
+      name: 'video-metadata',
       adapter: BullMQAdapter,
     }),
 
     BullBoardModule.forFeature({
-      name: 'analysis',
+      name: 'insight-gathering',
       adapter: BullMQAdapter,
     }),
 
     BullBoardModule.forFeature({
-      name: 'chunk-analysis',
+      name: 'performance-tracking',
       adapter: BullMQAdapter,
     }),
 
     BullBoardModule.forFeature({
-      name: 'stats',
-      adapter: BullMQAdapter,
-    }),
-
-    BullBoardModule.forFeature({
-      name: 'combination',
+      name: 'research-processing',
       adapter: BullMQAdapter,
     }),
 
@@ -123,8 +122,8 @@ import { BullMQRateLimitService } from './services/bullmq-rate-limit.service';
   providers: [
     ApiService,
     QuotaManagerService,
-    VideoAnalysisService,
-    VideoCombinationService,
+    VideoInsightService,
+    ResearchService,
     BullMQRateLimitService,
   ],
 })

@@ -44,23 +44,10 @@ export class AdminService {
     @InjectModel(Channel.name) private channelModel: Model<Channel>,
     @InjectModel(Content.name) private contentModel: Model<Content>,
     @InjectModel(Prompt.name) private promptModel: Model<Prompt>,
-    @InjectQueue('channel-poll') private channelPollQueue: Queue,
+    @InjectQueue('channel-monitoring') private channelMonitoringQueue: Queue, // Updated queue name
+    @InjectQueue('video-readiness') private videoReadinessQueue: Queue, // NEW queue for decoupled scheduling
+    @InjectQueue('research-scheduling') private researchSchedulingQueue: Queue, // NEW queue for research scheduling
   ) {}
-
-  // ============== DASHBOARD ==============
-  async getDashboardStats() {
-    const [channelCount, contentCount, promptCount] = await Promise.all([
-      this.channelModel.countDocuments(),
-      this.contentModel.countDocuments(),
-      this.promptModel.countDocuments(),
-    ]);
-
-    return {
-      channelCount,
-      contentCount,
-      promptCount,
-    };
-  }
 
   // ============== CHANNELS ==============
   async getAllChannels() {
@@ -78,7 +65,9 @@ export class AdminService {
     // Schedule recurring polling task for YouTube channels
     if (channel.sourceType === 'YOUTUBE') {
       await this.scheduleRecurringChannelPoll(channel.id, channel.cronPattern);
-      console.log(`✅ [Admin] Scheduled recurring channel poll task for: ${channel.name} (${channel.cronPattern})`);
+      console.log(
+        `✅ [Admin] Scheduled recurring channel poll task for: ${channel.name} (${channel.cronPattern})`,
+      );
     }
 
     return channel;
@@ -90,121 +79,74 @@ export class AdminService {
       throw new Error(`Channel with id ${id} not found`);
     }
 
-    const updatedChannel = await this.channelModel.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    ).exec();
+    const updatedChannel = await this.channelModel
+      .findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
+      .exec();
 
     // If cronPattern was updated and it's a YouTube channel, reschedule the job
-    if (updateData.cronPattern && currentChannel.sourceType === 'YOUTUBE' && 
-        updateData.cronPattern !== currentChannel.cronPattern) {
+    if (
+      updateData.cronPattern &&
+      currentChannel.sourceType === 'YOUTUBE' &&
+      updateData.cronPattern !== currentChannel.cronPattern
+    ) {
       await this.scheduleRecurringChannelPoll(id, updateData.cronPattern);
-      console.log(`✅ [Admin] Updated recurring job for channel: ${updatedChannel.name} (${updateData.cronPattern})`);
+      console.log(
+        `✅ [Admin] Updated recurring job for channel: ${updatedChannel.name} (${updateData.cronPattern})`,
+      );
     }
 
     return updatedChannel;
   }
 
-  async deleteChannel(id: string) {
-    const channel = await this.channelModel.findById(id).exec();
-    if (channel && channel.sourceType === 'YOUTUBE') {
-      // Remove recurring job before deleting the channel
-      await this.removeRecurringChannelPoll(id);
-      console.log(`✅ [Admin] Removed recurring job for deleted channel: ${channel.name}`);
-    }
-    
-    return this.channelModel.findByIdAndDelete(id).exec();
-  }
-
-  // ============== CONTENTS ==============
-  async getAllContents() {
-    return this.contentModel.find().populate('channelId').sort({ createdAt: -1 }).exec();
-  }
-
-  async getContentById(id: string) {
-    return this.contentModel.findById(id).populate('channelId').exec();
-  }
-
-  async createContent(createContentDto: CreateContentDto) {
-    const content = new this.contentModel(createContentDto);
-    return content.save();
-  }
-
   async updateContent(id: string, updateData: Partial<CreateContentDto>) {
-    return this.contentModel.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    ).exec();
-  }
-
-  async deleteContent(id: string) {
-    return this.contentModel.findByIdAndDelete(id).exec();
-  }
-
-  // ============== PROMPTS ==============
-  async getAllPrompts() {
-    return this.promptModel.find().sort({ createdAt: -1 }).exec();
-  }
-
-  async getPromptById(id: string) {
-    return this.promptModel.findById(id).exec();
-  }
-
-  async createPrompt(createPromptDto: CreatePromptDto) {
-    const prompt = new this.promptModel(createPromptDto);
-    return prompt.save();
-  }
-
-  async updatePrompt(id: string, updateData: Partial<CreatePromptDto>) {
-    return this.promptModel.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    ).exec();
-  }
-
-  async deletePrompt(id: string) {
-    return this.promptModel.findByIdAndDelete(id).exec();
+    return this.contentModel
+      .findByIdAndUpdate(id, updateData, { new: true, runValidators: true })
+      .exec();
   }
 
   // ============== RECURRING JOB MANAGEMENT ==============
   async scheduleRecurringChannelPoll(channelId: string, cronPattern: string) {
-    const jobName = `poll-channel-${channelId}`;
-    
+    const jobName = `monitor-channel-${channelId}`;
+
     // Remove any existing recurring job for this channel
     await this.removeRecurringChannelPoll(channelId);
-    
+
     // Add new recurring job
-    await this.channelPollQueue.add(
-      'poll-channel',
+    await this.channelMonitoringQueue.add(
+      'monitor-channel',
       { channelId },
       {
         repeat: { pattern: cronPattern },
         removeOnComplete: 10, // Keep last 10 completed jobs
         removeOnFail: 5, // Keep last 5 failed jobs
         jobId: jobName, // Use consistent job ID for easy management
-      }
+      },
     );
-    
-    console.log(`✅ Scheduled recurring job for channel ${channelId} with pattern: ${cronPattern}`);
+
+    console.log(
+      `✅ Scheduled recurring channel monitoring for ${channelId} with pattern: ${cronPattern}`,
+    );
   }
 
   async removeRecurringChannelPoll(channelId: string) {
-    const jobName = `poll-channel-${channelId}`;
-    
+    const jobName = `monitor-channel-${channelId}`;
+
     try {
       // Get the repeatable job
-      const repeatableJobs = await this.channelPollQueue.getRepeatableJobs();
-      const jobToRemove = repeatableJobs.find(job => job.id === jobName);
-      
+      const repeatableJobs =
+        await this.channelMonitoringQueue.getRepeatableJobs();
+      const jobToRemove = repeatableJobs.find((job) => job.id === jobName);
+
       if (jobToRemove) {
-        await this.channelPollQueue.removeRepeatableByKey(jobToRemove.key);
-        console.log(`✅ Removed recurring job for channel ${channelId}`);
+        await this.channelMonitoringQueue.removeRepeatableByKey(
+          jobToRemove.key,
+        );
+        console.log(`✅ Removed recurring channel monitoring for ${channelId}`);
       }
     } catch (error) {
-      console.warn(`⚠️ Could not remove recurring job for channel ${channelId}: ${error.message}`);
+      console.warn(
+        `⚠️ Could not remove recurring channel monitoring for ${channelId}: ${error.message}`,
+      );
     }
   }
 
@@ -215,43 +157,176 @@ export class AdminService {
     }
 
     // Update the database
-    await this.channelModel.findByIdAndUpdate(
-      channelId,
-      { cronPattern: newCronPattern },
-      { new: true, runValidators: true }
-    ).exec();
+    await this.channelModel
+      .findByIdAndUpdate(
+        channelId,
+        { cronPattern: newCronPattern },
+        { new: true, runValidators: true },
+      )
+      .exec();
 
     // Reschedule the recurring job if it's a YouTube channel
     if (channel.sourceType === 'YOUTUBE') {
       await this.scheduleRecurringChannelPoll(channelId, newCronPattern);
-      console.log(`✅ Updated recurring job for channel ${channelId} with new pattern: ${newCronPattern}`);
+      console.log(
+        `✅ Updated recurring job for channel ${channelId} with new pattern: ${newCronPattern}`,
+      );
     }
   }
 
   async startAllChannelPolling() {
-    const channels = await this.channelModel.find({ sourceType: 'YOUTUBE' }).exec();
-    
+    const channels = await this.channelModel
+      .find({ sourceType: 'YOUTUBE' })
+      .exec();
+
     for (const channel of channels) {
       await this.scheduleRecurringChannelPoll(channel.id, channel.cronPattern);
     }
-    
-    console.log(`✅ Started recurring polling for ${channels.length} YouTube channels`);
+
+    console.log(
+      `✅ Started recurring polling for ${channels.length} YouTube channels`,
+    );
     return { scheduledChannels: channels.length };
   }
 
   async stopAllChannelPolling() {
-    const channels = await this.channelModel.find({ sourceType: 'YOUTUBE' }).exec();
-    
+    const channels = await this.channelModel
+      .find({ sourceType: 'YOUTUBE' })
+      .exec();
+
     for (const channel of channels) {
       await this.removeRecurringChannelPoll(channel.id);
     }
-    
-    console.log(`✅ Stopped recurring polling for ${channels.length} YouTube channels`);
+
+    console.log(
+      `✅ Stopped recurring polling for ${channels.length} YouTube channels`,
+    );
     return { stoppedChannels: channels.length };
   }
 
   async triggerManualChannelPoll(channelId: string) {
-    await this.channelPollQueue.add('poll-channel', { channelId });
-    console.log(`✅ Manually triggered poll for channel: ${channelId}`);
+    await this.channelMonitoringQueue.add('monitor-channel', { channelId });
+    console.log(`✅ Manually triggered channel monitoring for: ${channelId}`);
   }
-} 
+
+  // ============== GLOBAL SYSTEM SCHEDULING ==============
+
+  /**
+   * Initialize system-wide periodic processors that run independently of channels
+   */
+  async initializeSystemPeriodicProcessors() {
+    await this.scheduleVideoReadinessProcessor();
+    await this.scheduleResearchSchedulerProcessor();
+
+    console.log(`✅ Initialized system-wide periodic processors`);
+    return {
+      videoReadinessScheduled: true,
+      researchSchedulerScheduled: true,
+    };
+  }
+
+  /**
+   * Schedule VideoReadinessProcessor to run every 3 minutes
+   * Checks for videos with METADATA_READY status and queues insight gathering jobs
+   */
+  async scheduleVideoReadinessProcessor() {
+    const jobName = 'video-readiness-check';
+
+    try {
+      // Remove any existing job
+      await this.removeSystemJob(this.videoReadinessQueue, jobName);
+
+      // Schedule new recurring job
+      await this.videoReadinessQueue.add(
+        'check-readiness',
+        { batchSize: 10 }, // Process up to 10 videos per check
+        {
+          repeat: { pattern: '*/3 * * * *' }, // Every 3 minutes
+          removeOnComplete: 5,
+          removeOnFail: 3,
+          jobId: jobName,
+        },
+      );
+
+      console.log(
+        `✅ Scheduled VideoReadinessProcessor to run every 3 minutes`,
+      );
+    } catch (error) {
+      console.error(
+        `❌ Failed to schedule VideoReadinessProcessor: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Schedule ResearchSchedulerProcessor to run every 7 minutes
+   * Checks for videos with INSIGHTS_GATHERED status and queues research processing jobs
+   */
+  async scheduleResearchSchedulerProcessor() {
+    const jobName = 'research-scheduler';
+
+    try {
+      // Remove any existing job
+      await this.removeSystemJob(this.researchSchedulingQueue, jobName);
+
+      // Schedule new recurring job
+      await this.researchSchedulingQueue.add(
+        'schedule-research',
+        { batchSize: 15 }, // Process up to 15 videos per check
+        {
+          repeat: { pattern: '*/7 * * * *' }, // Every 7 minutes
+          removeOnComplete: 5,
+          removeOnFail: 3,
+          jobId: jobName,
+        },
+      );
+
+      console.log(
+        `✅ Scheduled ResearchSchedulerProcessor to run every 7 minutes`,
+      );
+    } catch (error) {
+      console.error(
+        `❌ Failed to schedule ResearchSchedulerProcessor: ${error.message}`,
+      );
+    }
+  }
+
+  /**
+   * Stop system-wide periodic processors
+   */
+  async stopSystemPeriodicProcessors() {
+    await this.removeSystemJob(
+      this.videoReadinessQueue,
+      'video-readiness-check',
+    );
+    await this.removeSystemJob(
+      this.researchSchedulingQueue,
+      'research-scheduler',
+    );
+
+    console.log(`✅ Stopped system-wide periodic processors`);
+    return {
+      videoReadinessStopped: true,
+      researchSchedulerStopped: true,
+    };
+  }
+
+  /**
+   * Helper method to remove system jobs
+   */
+  private async removeSystemJob(queue: Queue, jobName: string) {
+    try {
+      const repeatableJobs = await queue.getRepeatableJobs();
+      const jobToRemove = repeatableJobs.find((job) => job.id === jobName);
+
+      if (jobToRemove) {
+        await queue.removeRepeatableByKey(jobToRemove.key);
+        console.log(`✅ Removed system job: ${jobName}`);
+      }
+    } catch (error) {
+      console.warn(
+        `⚠️ Could not remove system job ${jobName}: ${error.message}`,
+      );
+    }
+  }
+}

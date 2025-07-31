@@ -21,6 +21,9 @@ export class Channel extends Document {
   @Prop()
   authorContext?: string;
 
+  @Prop()
+  uploadsPlaylistId?: string; // YouTube uploads playlist ID for efficient video fetching
+
   @Prop({ type: Object })
   metadata?: Record<string, any>;
 }

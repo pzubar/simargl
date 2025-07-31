@@ -36,10 +36,6 @@ npm run docker:dev:watch
 #### 2. Code Changes
 - Modify code in `apps/` or `libs/` directories
 - Hot reload automatically applies changes
-- For Tailwind CSS changes, recompile:
-  ```bash
-  docker-compose -f docker-compose.dev.yml exec sim-api npx tailwindcss -i /usr/src/app/apps/api/src/public/input.css -o /usr/src/app/apps/api/src/public/output.css
-  ```
 
 #### 3. Testing Changes
 ```bash

@@ -32,6 +32,20 @@ async function bootstrap() {
     );
   }
 
+  // Initialize system-wide periodic processors
+  try {
+    const adminService = app.get(AdminService);
+    const result = await adminService.initializeSystemPeriodicProcessors();
+    console.log(
+      `🔄 Initialized system processors: VideoReadiness=${result.videoReadinessScheduled}, ResearchScheduler=${result.researchSchedulerScheduled}`,
+    );
+  } catch (error) {
+    console.warn(
+      '⚠️ Could not initialize system periodic processors:',
+      error.message,
+    );
+  }
+
   // Set up AdminJS component watching for development
   if (process.env.NODE_ENV !== 'production') {
     try {

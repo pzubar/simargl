@@ -1,12 +1,14 @@
 import { Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { AdminService } from './admin.service';
-import { TemplateService } from './template.service';
 import { componentLoader, Components } from './components';
 import { Channel, ChannelSchema } from '../schemas/channel.schema';
 import { Content, ContentSchema } from '../schemas/content.schema';
 import { Prompt, PromptSchema } from '../schemas/prompt.schema';
-import { VideoChunk, VideoChunkSchema } from '../schemas/video-chunk.schema';
+import {
+  VideoInsight,
+  VideoInsightSchema,
+} from '../schemas/video-insight.schema';
 import { AdminModule as AdminJSModule } from '@adminjs/nestjs';
 import AdminJS from 'adminjs';
 import { Database, Resource } from '@adminjs/mongoose';
@@ -21,7 +23,7 @@ AdminJS.registerAdapter({ Database, Resource });
       { name: Channel.name, schema: ChannelSchema },
       { name: Content.name, schema: ContentSchema },
       { name: Prompt.name, schema: PromptSchema },
-      { name: VideoChunk.name, schema: VideoChunkSchema },
+      { name: VideoInsight.name, schema: VideoInsightSchema },
     ]),
     AdminJSModule.createAdminAsync({
       imports: [
@@ -29,14 +31,14 @@ AdminJS.registerAdapter({ Database, Resource });
           { name: Channel.name, schema: ChannelSchema },
           { name: Content.name, schema: ContentSchema },
           { name: Prompt.name, schema: PromptSchema },
-          { name: VideoChunk.name, schema: VideoChunkSchema },
+          { name: VideoInsight.name, schema: VideoInsightSchema },
         ]),
       ],
       useFactory: (
         channelModel: Model<Channel>,
         contentModel: Model<Content>,
         promptModel: Model<Prompt>,
-        videoChunkModel: Model<VideoChunk>,
+        videoInsightModel: Model<VideoInsight>,
       ) => ({
         adminJsOptions: {
           rootPath: '/admin',
@@ -512,7 +514,7 @@ AdminJS.registerAdapter({ Database, Resource });
                     showInDrawer: false,
                   },
 
-                                    // Manual combination trigger
+                  // Manual combination trigger
                   triggerCombination: {
                     actionType: 'record',
                     icon: 'Layers',
@@ -529,7 +531,7 @@ AdminJS.registerAdapter({ Database, Resource });
                         const statusUrl = `${process.env.API_BASE_URL || 'http://localhost:3333'}/api/content/${contentId}/combination-status`;
                         const statusResponse = await fetch(statusUrl);
                         const statusData = await statusResponse.json();
-                        
+
                         if (!statusResponse.ok || !statusData.success) {
                           return {
                             notice: {
@@ -693,9 +695,50 @@ AdminJS.registerAdapter({ Database, Resource });
                       rows: 10,
                     },
                   },
-                  isDefault: {
+                  promptType: {
+                    type: 'select',
+                    availableValues: [
+                      {
+                        value: 'insight_gathering',
+                        label: 'Insight Gathering',
+                      },
+                      {
+                        value: 'research_question',
+                        label: 'Research Question',
+                      },
+                    ],
+                    description: 'Type of prompt for specific use cases',
+                  },
+                  isActive: {
                     type: 'boolean',
-                    description: 'Set as the default prompt for analysis',
+                    description: 'Set as the active prompt for this type',
+                  },
+                  responseMimeType: {
+                    type: 'select',
+                    availableValues: [
+                      {
+                        value: 'application/json',
+                        label: 'JSON (application/json)',
+                      },
+                      { value: 'text/plain', label: 'Plain Text (text/plain)' },
+                    ],
+                    description:
+                      'Response format (only applicable when responseSchema is set, defaults to application/json)',
+                  },
+                  responseSchema: {
+                    type: 'textarea',
+                    props: {
+                      rows: 15,
+                    },
+                    description:
+                      'JSON schema for structured output (must follow @google/genai Type format)',
+                  },
+                  description: {
+                    type: 'textarea',
+                    props: {
+                      rows: 3,
+                    },
+                    description: 'Optional description of the prompt purpose',
                   },
                 },
                 actions: {
@@ -705,6 +748,34 @@ AdminJS.registerAdapter({ Database, Resource });
                         request.payload.createdAt = new Date();
                         request.payload.updatedAt = new Date();
                         request.payload.version = '1.0';
+
+                        // Parse responseSchema if provided as string
+                        if (
+                          request.payload.responseSchema &&
+                          typeof request.payload.responseSchema === 'string'
+                        ) {
+                          try {
+                            request.payload.responseSchema = JSON.parse(
+                              request.payload.responseSchema,
+                            );
+                          } catch (error) {
+                            throw new Error(
+                              'Invalid JSON in responseSchema field',
+                            );
+                          }
+                        }
+
+                        // Handle responseMimeType logic
+                        if (request.payload.responseSchema) {
+                          // If responseSchema is set but responseMimeType is not, default to 'application/json'
+                          if (!request.payload.responseMimeType) {
+                            request.payload.responseMimeType =
+                              'application/json';
+                          }
+                        } else {
+                          // If responseSchema is not set, clear responseMimeType
+                          request.payload.responseMimeType = undefined;
+                        }
                       }
                       return request;
                     },
@@ -713,6 +784,54 @@ AdminJS.registerAdapter({ Database, Resource });
                     before: async (request) => {
                       if (request.payload) {
                         request.payload.updatedAt = new Date();
+
+                        // Parse responseSchema if provided as string
+                        if (
+                          request.payload.responseSchema &&
+                          typeof request.payload.responseSchema === 'string'
+                        ) {
+                          try {
+                            request.payload.responseSchema = JSON.parse(
+                              request.payload.responseSchema,
+                            );
+                          } catch (error) {
+                            throw new Error(
+                              'Invalid JSON in responseSchema field',
+                            );
+                          }
+                        }
+
+                        // Handle responseMimeType logic
+                        if (request.payload.responseSchema) {
+                          // If responseSchema is set but responseMimeType is not, default to 'application/json'
+                          if (!request.payload.responseMimeType) {
+                            request.payload.responseMimeType =
+                              'application/json';
+                          }
+                        } else {
+                          // If responseSchema is not set, clear responseMimeType
+                          request.payload.responseMimeType = undefined;
+                        }
+                      }
+                      return request;
+                    },
+                  },
+                  show: {
+                    before: async (request, context) => {
+                      // Convert responseSchema object back to formatted JSON string for display
+                      if (
+                        context.record &&
+                        context.record.params.responseSchema
+                      ) {
+                        try {
+                          context.record.params.responseSchema = JSON.stringify(
+                            context.record.params.responseSchema,
+                            null,
+                            2,
+                          );
+                        } catch (error) {
+                          // Keep original value if can't stringify
+                        }
                       }
                       return request;
                     },
@@ -721,7 +840,7 @@ AdminJS.registerAdapter({ Database, Resource });
               },
             },
             {
-              resource: videoChunkModel,
+              resource: videoInsightModel,
               options: {
                 navigation: {
                   name: 'Analysis Details',
@@ -920,7 +1039,7 @@ AdminJS.registerAdapter({ Database, Resource });
                 Channel: 'Channels',
                 Content: 'Content Items',
                 Prompt: 'AI Prompts',
-                VideoChunk: 'Video Chunks',
+                VideoInsight: 'Video Insights',
               },
               buttons: {
                 save: 'Save Changes',
@@ -936,15 +1055,15 @@ AdminJS.registerAdapter({ Database, Resource });
         getModelToken(Channel.name),
         getModelToken(Content.name),
         getModelToken(Prompt.name),
-        getModelToken(VideoChunk.name),
+        getModelToken(VideoInsight.name),
       ],
     }),
-    BullModule.registerQueue({ name: 'channel-poll' }),
+    BullModule.registerQueue({ name: 'channel-monitoring' }),
+    BullModule.registerQueue({ name: 'video-readiness' }),
+    BullModule.registerQueue({ name: 'research-scheduling' }),
   ],
-  controllers: [
-    /* AdminController */
-  ], // Disabled to use AdminJS on /admin route
-  providers: [AdminService, TemplateService],
+  controllers: [],
+  providers: [AdminService],
   exports: [AdminService],
 })
 export class AdminModule {}

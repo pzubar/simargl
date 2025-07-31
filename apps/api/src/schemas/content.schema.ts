@@ -86,7 +86,15 @@ export class Content extends Document {
 
   @Prop({
     required: true,
-    enum: ['PENDING', 'METADATA_FETCHED', 'PROCESSING', 'ANALYZED', 'FAILED'],
+    enum: [
+      'DISCOVERED', // Video found but not yet initialized
+      'INITIALIZING', // Setting up video for insight gathering
+      'METADATA_READY', // Ready for insight extraction
+      'INSIGHTS_QUEUED', // Insight gathering jobs scheduled
+      'INSIGHTS_GATHERED', // All insights extracted - ready for research prompts
+      'FAILED', // Processing failed
+    ],
+    default: 'DISCOVERED',
   })
   status: string;
 
@@ -104,6 +112,19 @@ export class Content extends Document {
 
   @Prop({ type: [StatisticsSchema], default: [] })
   statistics: Statistics[];
+
+  // Business workflow tracking timestamps
+  @Prop({ type: Date })
+  discoveredAt?: Date; // When video was first discovered
+
+  @Prop({ type: Date })
+  metadataGatheredAt?: Date; // When metadata was successfully gathered
+
+  @Prop({ type: Date })
+  insightJobsQueuedAt?: Date; // When insight gathering jobs were queued
+
+  @Prop({ type: Date })
+  insightsGatheredAt?: Date; // When all insights were gathered
 }
 
 export const ContentSchema = SchemaFactory.createForClass(Content);

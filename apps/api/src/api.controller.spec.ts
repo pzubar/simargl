@@ -22,25 +22,33 @@ describe('ApiController', () => {
 
     // Mock QuotaManagerService
     mockQuotaManagerService = {
-      getAvailableModels: jest.fn().mockReturnValue(['gemini-2.5-pro', 'gemini-2.5-flash']),
+      getAvailableModels: jest
+        .fn()
+        .mockReturnValue(['gemini-2.5-pro', 'gemini-2.5-flash']),
       getUsageStats: jest.fn().mockReturnValue({
-        usage: { requestsInCurrentMinute: 0, tokensInCurrentMinute: 0, requestsToday: 0 },
-        limits: { rpm: 5, tpm: 250000, rpd: 100 }
+        usage: {
+          requestsInCurrentMinute: 0,
+          tokensInCurrentMinute: 0,
+          requestsToday: 0,
+        },
+        limits: { rpm: 5, tpm: 250000, rpd: 100 },
       }),
-      getQuotaLimits: jest.fn().mockReturnValue({ rpm: 5, tpm: 250000, rpd: 100 }),
+      getQuotaLimits: jest
+        .fn()
+        .mockReturnValue({ rpm: 5, tpm: 250000, rpd: 100 }),
       canMakeRequest: jest.fn().mockResolvedValue({ allowed: true }),
       getViolationStats: jest.fn().mockReturnValue({
         totalViolations: 0,
         violationsByModel: {},
-        recentViolations: []
+        recentViolations: [],
       }),
       currentTier: 'free',
       quotaLimits: {
         free: { 'gemini-2.5-pro': {}, 'gemini-2.5-flash': {} },
         tier1: {},
         tier2: {},
-        tier3: {}
-      }
+        tier3: {},
+      },
     };
 
     const app: TestingModule = await Test.createTestingModule({
@@ -74,16 +82,16 @@ describe('ApiController', () => {
   describe('testVideoAnalysis', () => {
     it('should successfully queue video analysis with valid contentId', async () => {
       const body = { contentId: '507f1f77bcf86cd799439011' };
-      
+
       const result = await apiController.testVideoAnalysis(body);
-      
+
       expect(result).toEqual({
         message: 'Video analysis job queued (metadata → analysis pipeline)',
         contentId: '507f1f77bcf86cd799439011',
         jobId: 'test-job-123',
         model: 'auto-select',
       });
-      
+
       expect(mockContentProcessingQueue.add).toHaveBeenCalledWith(
         'process-content',
         {
@@ -98,40 +106,40 @@ describe('ApiController', () => {
           },
           removeOnComplete: 10,
           removeOnFail: 20,
-        }
+        },
       );
     });
 
     it('should successfully queue video analysis with model selection', async () => {
-      const body = { 
+      const body = {
         contentId: '507f1f77bcf86cd799439011',
-        model: 'gemini-2.5-flash'
+        model: 'gemini-2.5-flash',
       };
-      
+
       const result = await apiController.testVideoAnalysis(body);
-      
+
       expect(result).toEqual({
         message: 'Video analysis job queued (metadata → analysis pipeline)',
         contentId: '507f1f77bcf86cd799439011',
         jobId: 'test-job-123',
         model: 'gemini-2.5-flash',
       });
-      
+
       expect(mockContentProcessingQueue.add).toHaveBeenCalledWith(
         'process-content',
         {
           contentId: '507f1f77bcf86cd799439011',
           forceModel: 'gemini-2.5-flash',
         },
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
     it('should trim whitespace from contentId', async () => {
       const body = { contentId: '  507f1f77bcf86cd799439011  ' };
-      
+
       const result = await apiController.testVideoAnalysis(body);
-      
+
       expect(result.contentId).toBe('507f1f77bcf86cd799439011');
       expect(mockContentProcessingQueue.add).toHaveBeenCalledWith(
         'process-content',
@@ -139,50 +147,55 @@ describe('ApiController', () => {
           contentId: '507f1f77bcf86cd799439011',
           forceModel: undefined,
         },
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
     it('should throw error when body is missing', async () => {
-      await expect(apiController.testVideoAnalysis(null as any))
-        .rejects.toThrow('Request body is missing');
-      
+      await expect(
+        apiController.testVideoAnalysis(null as any),
+      ).rejects.toThrow('Request body is missing');
+
       expect(mockContentProcessingQueue.add).not.toHaveBeenCalled();
     });
 
     it('should throw error when contentId is missing', async () => {
       const body = { model: 'gemini-2.5-flash' } as any;
-      
-      await expect(apiController.testVideoAnalysis(body))
-        .rejects.toThrow('contentId is required');
-      
+
+      await expect(apiController.testVideoAnalysis(body)).rejects.toThrow(
+        'contentId is required',
+      );
+
       expect(mockContentProcessingQueue.add).not.toHaveBeenCalled();
     });
 
     it('should throw error when contentId is empty string', async () => {
       const body = { contentId: '' };
-      
-      await expect(apiController.testVideoAnalysis(body))
-        .rejects.toThrow('contentId must be a non-empty string');
-      
+
+      await expect(apiController.testVideoAnalysis(body)).rejects.toThrow(
+        'contentId must be a non-empty string',
+      );
+
       expect(mockContentProcessingQueue.add).not.toHaveBeenCalled();
     });
 
     it('should throw error when contentId is only whitespace', async () => {
       const body = { contentId: '   ' };
-      
-      await expect(apiController.testVideoAnalysis(body))
-        .rejects.toThrow('contentId must be a non-empty string');
-      
+
+      await expect(apiController.testVideoAnalysis(body)).rejects.toThrow(
+        'contentId must be a non-empty string',
+      );
+
       expect(mockContentProcessingQueue.add).not.toHaveBeenCalled();
     });
 
     it('should throw error when contentId is not a string', async () => {
       const body = { contentId: 123 } as any;
-      
-      await expect(apiController.testVideoAnalysis(body))
-        .rejects.toThrow('contentId must be a non-empty string');
-      
+
+      await expect(apiController.testVideoAnalysis(body)).rejects.toThrow(
+        'contentId must be a non-empty string',
+      );
+
       expect(mockContentProcessingQueue.add).not.toHaveBeenCalled();
     });
   });
@@ -190,33 +203,32 @@ describe('ApiController', () => {
   describe('testChannelPoll', () => {
     it('should successfully queue channel poll with valid channelId', async () => {
       const body = { channelId: '507f1f77bcf86cd799439011' };
-      
+
       const result = await apiController.testChannelPoll(body);
-      
+
       expect(result).toEqual({
         message: 'Channel poll job queued',
         channelId: '507f1f77bcf86cd799439011',
         jobId: 'test-poll-job-456',
       });
-      
-      expect(mockChannelPollQueue.add).toHaveBeenCalledWith(
-        'poll-channel',
-        { channelId: '507f1f77bcf86cd799439011' }
-      );
+
+      expect(mockChannelPollQueue.add).toHaveBeenCalledWith('poll-channel', {
+        channelId: '507f1f77bcf86cd799439011',
+      });
     });
   });
 
   describe('getAvailableModels', () => {
     it('should return available models and tier information', () => {
       const result = apiController.getAvailableModels();
-      
+
       expect(result).toEqual({
         models: ['gemini-2.5-pro', 'gemini-2.5-flash'],
         modelsByTier: {
           free: ['gemini-2.5-pro', 'gemini-2.5-flash'],
           tier1: [],
           tier2: [],
-          tier3: []
+          tier3: [],
         },
         currentTier: 'free',
         timestamp: expect.any(String),

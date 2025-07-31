@@ -5,13 +5,13 @@ import { Model } from 'mongoose';
 import { Content } from '../schemas/content.schema';
 import { Logger } from '@nestjs/common';
 
-@Processor('content-processing')
-export class ContentProcessingProcessor extends WorkerHost {
-  private readonly logger = new Logger(ContentProcessingProcessor.name);
+@Processor('video-discovery')
+export class VideoDiscoveryProcessor extends WorkerHost {
+  private readonly logger = new Logger(VideoDiscoveryProcessor.name);
 
   constructor(
     @InjectModel(Content.name) private contentModel: Model<Content>,
-    @InjectQueue('metadata-processing') private metadataQueue: Queue,
+    @InjectQueue('video-metadata') private videoMetadataQueue: Queue,
   ) {
     super();
   }
@@ -45,7 +45,7 @@ export class ContentProcessingProcessor extends WorkerHost {
   }
 
   /**
-   * Check if error indicates model overload (retryable)
+   * Check if error indicates system overload (retryable)
    */
   private isOverloadError(error: any): boolean {
     const errorMessage = error?.message || '';
@@ -67,8 +67,8 @@ export class ContentProcessingProcessor extends WorkerHost {
   }
 
   async process(job: Job<any, any, string>): Promise<any> {
-    // Enhanced logging for job data structure
-    this.logger.log(`📋 Processing content job: ${job.id}`);
+    // Enhanced logging for video discovery
+    this.logger.log(`🎬 Processing video discovery job: ${job.id}`);
     this.logger.debug(
       `📊 Job data structure:`,
       JSON.stringify(job.data, null, 2),
@@ -85,7 +85,7 @@ export class ContentProcessingProcessor extends WorkerHost {
       );
     }
 
-    this.logger.log(`🔍 Looking up content with ID: ${job.data.contentId}`);
+    this.logger.log(`🔍 Initializing video discovery for content ID: ${job.data.contentId}`);
 
     // More robust database query with detailed logging
     let content;
@@ -121,22 +121,22 @@ export class ContentProcessingProcessor extends WorkerHost {
     }
 
     this.logger.log(
-      `✅ Found content: "${content.title}" (${content.sourceContentId})`,
+      `✅ Found video for discovery: "${content.title}" (${content.sourceContentId})`,
     );
 
     try {
-      // First step: fetch metadata (this is now separated from analysis)
+      // Initialize video for the insight gathering pipeline
       this.logger.log(
-        `📊 Queueing metadata processing for: ${content.sourceContentId}`,
+        `🎯 Initializing video for insight pipeline: ${content.sourceContentId}`,
       );
 
-      // Update status to indicate processing has started
-      this.logger.debug(`🔄 Updating content status to PROCESSING...`);
+      // Update status to indicate video discovery initialization has started
+      this.logger.debug(`🔄 Updating video status to INITIALIZING...`);
       const updateResult = await this.contentModel.updateOne(
         { _id: content._id },
         {
-          status: 'PROCESSING',
-          processingStartedAt: new Date(),
+          status: 'INITIALIZING',
+          discoveryInitializedAt: new Date(),
         },
       );
 
@@ -144,10 +144,10 @@ export class ContentProcessingProcessor extends WorkerHost {
         `📊 Status update result: matched=${updateResult.matchedCount}, modified=${updateResult.modifiedCount}`,
       );
 
-      // Queue metadata processing (which will then queue analysis)
-      this.logger.debug(`🚀 Adding job to metadata-processing queue...`);
-      const metadataJob = await this.metadataQueue.add(
-        'fetch-metadata',
+      // Queue video metadata gathering (next step in the business workflow)
+      this.logger.debug(`🚀 Adding job to video-metadata queue...`);
+      const metadataJob = await this.videoMetadataQueue.add(
+        'gather-video-metadata',
         {
           contentId: content._id.toString(), // Ensure it's a string
         },
@@ -163,11 +163,19 @@ export class ContentProcessingProcessor extends WorkerHost {
       );
 
       this.logger.log(
-        `✅ Successfully queued metadata processing for content: ${content._id} (job: ${metadataJob.id})`,
+        `✅ Video discovery initialized successfully for: ${content._id} (metadata job: ${metadataJob.id})`,
       );
+      
+      return {
+        contentId: content._id.toString(),
+        videoTitle: content.title,
+        sourceContentId: content.sourceContentId,
+        status: 'INITIALIZING',
+        metadataJobId: metadataJob.id,
+      };
     } catch (processingError) {
       this.logger.error(
-        `❌ Failed to process content ${content?.sourceContentId || 'unknown'}:`,
+        `❌ Failed to initialize video discovery for ${content?.sourceContentId || 'unknown'}:`,
         processingError,
       );
 
@@ -181,13 +189,13 @@ export class ContentProcessingProcessor extends WorkerHost {
 
       try {
         if (content && content._id) {
-          const status = isValidation ? 'FAILED' : 'RETRY_PENDING';
+          const status = isValidation ? 'FAILED' : 'DISCOVERED'; // Return to DISCOVERED for retry
           const failUpdateResult = await this.contentModel.updateOne(
             { _id: content._id },
             {
               status: status,
               lastError: processingError.message,
-              processingFailedAt: new Date(),
+              discoveryFailedAt: new Date(),
             },
           );
           this.logger.debug(
@@ -204,7 +212,13 @@ export class ContentProcessingProcessor extends WorkerHost {
           `❌ Validation error - job will NOT be retried: ${processingError.message}`,
         );
         // Don't re-throw validation errors to prevent retry
-        return;
+        return {
+          contentId: content._id.toString(),
+          videoTitle: content.title,
+          sourceContentId: content.sourceContentId,
+          status: 'FAILED',
+          error: processingError.message,
+        };
       }
 
       // Re-throw for retryable errors (overload, network issues, etc.)
@@ -213,7 +227,5 @@ export class ContentProcessingProcessor extends WorkerHost {
       );
       throw processingError;
     }
-
-    return {};
   }
 }

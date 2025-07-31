@@ -1,32 +1,26 @@
-import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Param,
-  Res,
-  Redirect,
-} from '@nestjs/common';
-import { Response } from 'express';
+import { Controller, Get, Post, Body, Param, Redirect } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { ApiService } from './api.service';
 import { EnhancedQuotaManagerService as QuotaManagerService } from './services/enhanced-quota-manager.service';
-import { VideoCombinationService } from './services/video-combination.service';
+import { ResearchService } from './services/research.service';
 import { Model } from 'mongoose';
-import { VideoChunk } from 'apps/api/src/schemas/video-chunk.schema';
+import { VideoInsight } from 'apps/api/src/schemas/video-insight.schema';
+import { Prompt } from 'apps/api/src/schemas/prompt.schema';
 import { InjectModel } from '@nestjs/mongoose';
 
 @Controller('api')
 export class ApiController {
   constructor(
     private readonly apiService: ApiService,
-    @InjectQueue('content-processing') private contentProcessingQueue: Queue,
-    @InjectQueue('channel-poll') private channelPollQueue: Queue,
+    @InjectQueue('video-discovery') private videoDiscoveryQueue: Queue,
+    @InjectQueue('channel-monitoring') private channelMonitoringQueue: Queue,
     private quotaManager: QuotaManagerService,
-    private videoCombinationService: VideoCombinationService,
-    @InjectModel(VideoChunk.name)
-    private videoChunkModel: Model<VideoChunk>,
+    private researchService: ResearchService,
+    @InjectModel(VideoInsight.name)
+    private videoInsightModel: Model<VideoInsight>,
+    @InjectModel(Prompt.name)
+    private promptModel: Model<Prompt>,
   ) {}
 
   @Get()
@@ -65,9 +59,9 @@ export class ApiController {
     const contentId = body.contentId.trim();
     console.log(`✅ Valid contentId received: "${contentId}"`);
 
-    // Add job to content-processing queue (which will handle metadata → analysis pipeline)
-    const job = await this.contentProcessingQueue.add(
-      'process-content',
+    // Add job to video-discovery queue (which will handle initialization → metadata pipeline)
+    const job = await this.videoDiscoveryQueue.add(
+      'discover-video',
       {
         contentId: contentId,
         forceModel: body.model, // Pass model selection to the job
@@ -117,7 +111,10 @@ export class ApiController {
   @Get('quota/check/:model')
   async checkQuotaForModel(@Param('model') model: string) {
     const estimatedTokens = 1000; // Default estimation
-    const check = await this.quotaManager.canMakeRequest(model, estimatedTokens);
+    const check = await this.quotaManager.canMakeRequest(
+      model,
+      estimatedTokens,
+    );
     const usageStats = await this.quotaManager.getUsageStats(model);
 
     return {
@@ -147,7 +144,7 @@ export class ApiController {
     );
 
     // Add job to channel-poll queue
-    const job = await this.channelPollQueue.add('poll-channel', {
+    const job = await this.channelMonitoringQueue.add('monitor-channel', {
       channelId: body.channelId,
     });
 
@@ -186,21 +183,23 @@ export class ApiController {
   @Get('contents/:id/chunk-progress')
   async getChunkProgress(@Param('id') id: string) {
     console.log(`Getting chunk progress for content: ${id}`);
-    const totalChunks = await this.videoChunkModel.countDocuments({
+    const totalChunks = await this.videoInsightModel.countDocuments({
       contentId: id,
     });
-    const analyzedChunks = await this.videoChunkModel.countDocuments({
+    const analyzedChunks = await this.videoInsightModel.countDocuments({
       contentId: id,
-      status: 'ANALYZED',
+      status: 'INSIGHTS_GATHERED',
     });
-    console.log(`Total chunks: ${totalChunks}, Analyzed chunks: ${analyzedChunks}, Content ID: ${id}`);
+    console.log(
+      `Total chunks: ${totalChunks}, Analyzed chunks: ${analyzedChunks}, Content ID: ${id}`,
+    );
     return { total: totalChunks, analyzed: analyzedChunks };
   }
 
-  @Get('content/:contentId/combination-status')
-  async getCombinationStatus(@Param('contentId') contentId: string) {
+  @Get('content/:contentId/research-status')
+  async getResearchStatus(@Param('contentId') contentId: string) {
     try {
-      const status = await this.videoCombinationService.getCombinationStatus(contentId);
+      const status = await this.researchService.getResearchStatus(contentId);
       return {
         success: true,
         status,
@@ -215,20 +214,33 @@ export class ApiController {
     }
   }
 
-  @Post('content/:contentId/trigger-combination')
-  async triggerCombination(
+  @Post('content/:contentId/trigger-research')
+  async triggerResearch(
     @Param('contentId') contentId: string,
     @Body() body: { forceModel?: string } = {},
   ) {
     try {
-      const result = await this.videoCombinationService.triggerCombination(
+      // TODO: Fix this - need to pass promptId, not forceModel
+      // For now, get first active prompt
+      const firstPrompt = await this.promptModel
+        .findOne({ isActive: true })
+        .exec();
+      if (!firstPrompt) {
+        return {
+          success: false,
+          reason: 'No active prompt found',
+          timestamp: new Date().toISOString(),
+        };
+      }
+
+      const result = await this.researchService.queueResearchProcessing(
         contentId,
-        body.forceModel,
+        firstPrompt._id,
       );
       return {
         success: result.success,
-        message: result.message,
-        error: result.error,
+        jobId: result.jobId,
+        reason: result.reason,
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
@@ -240,15 +252,15 @@ export class ApiController {
     }
   }
 
-  @Post('content/:contentId/reset-chunks')
-  async resetChunks(@Param('contentId') contentId: string) {
+  @Post('content/:contentId/reset-insights')
+  async resetInsights(@Param('contentId') contentId: string) {
     try {
-      const result = await this.videoCombinationService.resetChunks(contentId);
+      const result = await this.researchService.resetInsights(contentId);
       return {
         success: result.success,
-        message: result.message,
-        resetCount: result.resetCount,
-        error: result.error,
+        deletedInsights: result.deletedInsights,
+        deletedResearch: result.deletedResearch,
+        reason: result.reason,
         timestamp: new Date().toISOString(),
       };
     } catch (error) {
