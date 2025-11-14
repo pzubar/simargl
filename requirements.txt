@@ -1,0 +1,19 @@
+# Core Agent Framework
+google-adk
+
+# Google Cloud & APIs
+google-cloud-aiplatform
+google-cloud-bigquery
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+
+# YouTube Specific
+youtube-transcript-api
+
+# Frontend & Utilities
+streamlit
+pandas
+python-dotenv
+requests
+

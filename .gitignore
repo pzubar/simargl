@@ -1,3 +1,22 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+
+# Environment
+.env
+.venv/
+
+# Credentials
+gcp-creds.json
+
+# Streamlit
+.streamlit/
+
+# OS files
+.DS_Store
 # compiled output
 /dist
 /node_modules
@@ -54,3 +73,5 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+gcp-creds.json
