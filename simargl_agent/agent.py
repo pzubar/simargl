@@ -19,6 +19,7 @@ from tools.youtube_tool import (
     GetLatestVideosTool,
     GetVideoCommentsTool,
     SearchChannelVideosTool,
+    GetVideoDetailsTool
 )
 
 MODEL_NAME = DEFAULT_GEMINI_MODEL
@@ -34,6 +35,7 @@ _TOOLS = [
     UploadFileSearchDocumentTool(),
     QueryFileSearchStoreTool(),
     RefreshChannelMetadataTool(),
+    GetVideoDetailsTool()
 ]
 
 root_agent = LlmAgent(

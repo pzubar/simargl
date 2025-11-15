@@ -1,4 +1,4 @@
-"""Quota-aware tools interacting with the YouTube Data API v3."""
+"Quota-aware tools interacting with the YouTube Data API v3."
 
 from __future__ import annotations
 
@@ -87,19 +87,46 @@ class VideoCommentsInput(BaseModel):
     )
 
 
+class ChannelDetailsInput(BaseModel):
+    channel_id: Optional[str] = Field(
+        None,
+        description="Comma-separated list of YouTube channel IDs.",
+    )
+    for_username: Optional[str] = Field(
+        None,
+        description="YouTube username.",
+    )
+    for_handle: Optional[str] = Field(
+        None,
+        description="YouTube handle (e.g., GoogleDevelopers or @GoogleDevelopers).",
+    )
+    part: str = Field(
+        "snippet,statistics",
+        description="Comma-separated list of channel resource properties to include (e.g., snippet, contentDetails, statistics). Defaults to snippet,statistics.",
+    )
+    max_results: int = Field(
+        YOUTUBE_DEFAULT_MAX_RESULTS,
+        description="Number of channels to fetch (0 to 50, default 5).",
+    )
+
+
+class VideoDetailsInput(BaseModel):
+    video_id: str = Field(..., description="The ID of the YouTube video.")
+
+
 class ChannelVideoSearchInput(BaseModel):
     channel_id: str = Field(..., description="The ID of the YouTube channel.")
     published_after: Optional[str] = Field(
         None,
         description="Fetch videos published on or after this RFC3339 timestamp (e.g. 2024-08-01T00:00:00Z).",
     )
-    published_before: Optional[str] = Field(
-        None,
-        description="Fetch videos published before this RFC3339 timestamp (e.g. 2024-08-15T00:00:00Z).",
-    )
     max_results: int = Field(
         YOUTUBE_DEFAULT_MAX_RESULTS,
         description="Number of videos to fetch (default 5).",
+    )
+    order: str = Field(
+        "relevance",
+        description="Order of returned resources. Acceptable values are: date, rating, relevance, title, videoCount, viewCount. Defaults to relevance.",
     )
 
 
@@ -295,6 +322,140 @@ class GetVideoCommentsTool(BaseTool):
             )
             return None
 
+class GetChannelDetailsTool(BaseTool):
+    """Tool to get detailed channel metadata. COST: 1 quota unit."""
+
+    NAME = "get_channel_details"
+    DESCRIPTION = (
+        "Fetches detailed metadata (snippet, statistics, contentDetails) for YouTube channels "
+        "by ID, username, or handle. This call costs approximately 1 quota unit."
+    )
+
+    def __init__(self) -> None:
+        super().__init__(
+            name=self.NAME,
+            description=self.DESCRIPTION,
+        )
+
+    @property
+    def args_schema(self) -> type[ChannelDetailsInput]:
+        return ChannelDetailsInput
+
+    def _get_declaration(self):
+        declaration = tool_utils.build_function_declaration(
+            func=self.args_schema,
+            variant=self._api_variant,
+        )
+        declaration.name = self.NAME
+        return declaration
+
+    async def run_async(self, *, args: dict[str, Any], tool_context) -> Dict[str, Any]:
+        return self(
+            channel_id=args.get("channel_id"),
+            for_username=args.get("for_username"),
+            for_handle=args.get("for_handle"),
+            part=args.get("part", "snippet,statistics"),
+            max_results=args.get("max_results", YOUTUBE_DEFAULT_MAX_RESULTS),
+        )
+
+    def __call__(
+        self,
+        channel_id: Optional[str] = None,
+        for_username: Optional[str] = None,
+        for_handle: Optional[str] = None,
+        part: str = "snippet,statistics",
+        max_results: int = YOUTUBE_DEFAULT_MAX_RESULTS,
+    ) -> Dict[str, Any]:
+        try:
+            service = get_youtube_service()
+            params: Dict[str, Any] = {"part": part}
+            filter_count = 0
+
+            if channel_id:
+                params["id"] = channel_id
+                filter_count += 1
+            if for_username:
+                params["forUsername"] = for_username
+                filter_count += 1
+            if for_handle:
+                params["forHandle"] = for_handle
+                filter_count += 1
+
+            if filter_count != 1:
+                return {
+                    "error": "Exactly one of channel_id, for_username, or for_handle must be provided."
+                }
+
+            params["maxResults"] = max(0, min(50, max_results))
+
+            request = service.channels().list(**params)
+            response = request.execute()
+            items: List[Dict[str, Any]] = response.get("items", [])
+            return {"channels": items}
+        except HttpError as http_err:
+            logger.exception("YouTube API error when fetching channel details")
+            return {"error": f"YouTube API error: {http_err}"}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Unexpected error when fetching channel details")
+            return {"error": f"Unexpected error: {exc}"}
+
+
+class GetVideoDetailsTool(BaseTool):
+    """Tool to get detailed video metadata. COST: 1 quota unit."""
+
+    NAME = "get_video_details"
+    DESCRIPTION = (
+        "Fetches detailed metadata (snippet, statistics) for a video. "
+        "This call costs approximately 1 quota unit."
+    )
+
+    def __init__(self) -> None:
+        super().__init__(
+            name=self.NAME,
+            description=self.DESCRIPTION,
+        )
+
+    @property
+    def args_schema(self) -> type[VideoDetailsInput]:
+        return VideoDetailsInput
+
+    def _get_declaration(self):
+        declaration = tool_utils.build_function_declaration(
+            func=self.args_schema,
+            variant=self._api_variant,
+        )
+        declaration.name = self.NAME
+        return declaration
+
+    async def run_async(self, *, args: dict[str, Any], tool_context) -> Dict[str, Any]:
+        return self(video_id=args["video_id"])
+
+    def __call__(self, video_id: str) -> Dict[str, Any]:
+        try:
+            service = get_youtube_service()
+            request = service.videos().list(
+                part="snippet,statistics",
+                id=video_id,
+            )
+            response = request.execute()
+            items: List[Dict[str, Any]] = response.get("items", [])
+            return {
+                "video_id": video_id,
+                "videos": items,
+            }
+        except HttpError as http_err:
+            logger.exception("YouTube API error when fetching details for %s", video_id)
+            return {
+                "video_id": video_id,
+                "error": f"YouTube API error: {http_err}",
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Unexpected error when fetching details for %s", video_id)
+            return {
+                "video_id": video_id,
+                "error": f"Unexpected error: {exc}",
+            }
+
 
 class SearchChannelVideosTool(BaseTool):
     """Tool to search channel videos within a timeframe. COST: 100 quota units."""
@@ -329,6 +490,7 @@ class SearchChannelVideosTool(BaseTool):
             published_after=args.get("published_after"),
             published_before=args.get("published_before"),
             max_results=args.get("max_results", YOUTUBE_DEFAULT_MAX_RESULTS),
+            order=args.get("order", "relevance"),
         )
     def __call__(
         self,
@@ -336,6 +498,7 @@ class SearchChannelVideosTool(BaseTool):
         published_after: Optional[str] = None,
         published_before: Optional[str] = None,
         max_results: int = YOUTUBE_DEFAULT_MAX_RESULTS,
+        order: str = "relevance",
     ) -> Dict[str, Any]:
         try:
             max_results = max(1, min(50, max_results))
@@ -344,7 +507,7 @@ class SearchChannelVideosTool(BaseTool):
                 "part": "snippet",
                 "channelId": channel_id,
                 "maxResults": max_results,
-                "order": "date",
+                "order": order,
                 "type": "video",
             }
             normalized_after = _maybe_normalize_timestamp(published_after)
@@ -381,4 +544,10 @@ class SearchChannelVideosTool(BaseTool):
             }
 
 
-
+__all__ = (
+    "GetLatestVideosTool",
+    "GetVideoCommentsTool",
+    "GetVideoDetailsTool",
+    "GetChannelDetailsTool",
+    "SearchChannelVideosTool",
+)

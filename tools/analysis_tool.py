@@ -5,25 +5,17 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict
 
-import vertexai
+from google import genai
 from google.adk.tools import BaseTool, _automatic_function_calling_util as tool_utils
 from pydantic import BaseModel, Field
-from vertexai.generative_models import GenerativeModel, Part
 
 from config.settings import (
     DEFAULT_GEMINI_MODEL,
-    GCP_PROJECT_ID,
-    GCP_REGION,
     GEMINI_MODEL_PREMIUM,
 )
 
 logger = logging.getLogger(__name__)
-
-# Initialize Vertex AI once at import.
-vertexai.init(project=GCP_PROJECT_ID, location=GCP_REGION)
-_SUMMARY_MODEL = GenerativeModel(GEMINI_MODEL_PREMIUM)
-_SENTIMENT_MODEL = GenerativeModel(DEFAULT_GEMINI_MODEL)
-
+client = genai.Client()
 
 class SummarizeInput(BaseModel):
     text_content: str = Field(..., description="The text to be analyzed.")
@@ -62,12 +54,16 @@ class SummarizeTool(BaseTool):
 
     def __call__(self, text_content: str) -> Dict[str, Any]:
         try:
-            response = _SUMMARY_MODEL.generate_content(
-                Part.from_text(
-                    "Summarize the following text in 3-5 concise bullet points highlighting key themes:\n\n"
-                    f"{text_content}"
-                )
+            response = client.models.generate_content(
+              model=_SUMMARY_MODEL,
+              contents= "Summarize the following text in 3-5 concise bullet points highlighting key themes:\n\n" f"{text_content}",
+#               config=types.GenerateContentConfig(
+#                 temperature=0.3,
+#                 response_logprobs=True,
+#                 logprobs=3,
+#               ),
             )
+
             summary_text = response.text if hasattr(response, "text") else str(response)
             return {"summary": summary_text}
         except Exception as exc:  # noqa: BLE001
@@ -107,12 +103,10 @@ class SentimentAnalysisTool(BaseTool):
 
     def __call__(self, text_content: str) -> Dict[str, Any]:
         try:
-            response = _SENTIMENT_MODEL.generate_content(
-                Part.from_text(
-                    "Analyze the sentiment of the following text. "
-                    "Respond with only one of Positive, Negative, or Neutral.\n\n"
-                    f"{text_content}"
-                )
+            contents = "Analyze the sentiment of the following text. Respond with only one of Positive, Negative, or Neutral.\n\n" f"{text_content}"
+            response = client.models.generate_content(
+              model=_SENTIMENT_MODEL,
+              contents= contents,
             )
             sentiment_text = response.text.strip() if hasattr(response, "text") else str(response).strip()
             return {"sentiment": sentiment_text}

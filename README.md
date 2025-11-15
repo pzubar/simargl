@@ -1,3 +1,7 @@
+Use 
+`export PYTHONPATH=simargl:$PYTHONPATH && export SSL_CERT_FILE=$(python -m certifi) && export ADK_APP_NAME=simargl && adk web --port 8000 /Users/pzubar/research/simargl/agents`
+to start
+
 ### 1. Configuration & Environment (`config/settings.py`)
 - Centralizes all runtime settings: GCP project/region, API keys (YouTube, Gemini), local data paths (`channels.json`, registry JSON), polling/TTL values, ADK/Streamlit URLs.
 - Loads `.env` so you can swap credentials without touching code; also sets `GOOGLE_APPLICATION_CREDENTIALS` so Vertex/Gemini SDKs see the service-account JSON.
@@ -37,7 +41,7 @@ All of these tools are registered with the orchestrator agent along with human-r
 - Additional data/notes are embossed into this JSON plus File Search stores once transcription/comment tools run.
 
 ### 8. Dependencies (`requirements.txt`)
-- Core: `google-adk`, `google-cloud-aiplatform`, `google.genai` via `google-adk` indirect dependency, `google-api-python-client`, Streamlit, Requests, Pandas, dotenv, `youtube-transcript-api`. These cover ADK runtimes, Gemini/File Search, YouTube APIs, and the UI.
+- Core: `google-adk`, `google-genai`, `google-api-python-client`, Streamlit, Requests, Pandas, dotenv, `youtube-transcript-api`. These cover ADK runtimes, Gemini/File Search, YouTube APIs, and the UI.
 
 ### 9. Typical Request Flow
 1. Analyst uses Streamlit (or ADK Dev UI) to send a question.
@@ -53,14 +57,7 @@ This layered design keeps Simargl modular: configuration/credentials are central
 
 ---
 
-### 1. Vertex AI SDK deprecation warning
-The log line comes from `vertexai.generative_models` (part of the `google-cloud-aiplatform` / Vertex AI SDK). Per Google’s migration guide, the entire Vertex AI SDK generative module is deprecated and will be removed after 24 June 2026; new projects should switch to the Google Gen AI SDK instead ([migration guide](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/deprecations/genai-vertexai-sdk)).
 
-**What to do now:**
-- Plan to replace `vertexai.*` imports (e.g., `vertexai.init`, `GenerativeModel`) with the `google.genai` equivalents. The new SDK exposes the same functionality with updated namespaces (`google.genai.Client`, `client.models.generate_content`, etc.).
-- Because ADK itself still initializes Vertex AI models internally, keep an eye on upcoming ADK releases—they’ll migrate to Google Gen AI automatically. For your custom tools (e.g., `analysis_tool.py`), schedule time to refactor them to the new SDK before June 2026.
-
----
 
 ### 2. “Channel memory service disabled. Missing project or agent engine id.”
 ADK tries to boot the Vertex AI Memory service but sees no Engine ID, so it logs that warning and skips memory. This is expected unless you’ve actually set up a memory bank. If you want Simargl to use memory:
