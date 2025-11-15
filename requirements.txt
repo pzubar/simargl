@@ -12,8 +12,10 @@ google-auth-oauthlib
 youtube-transcript-api
 
 # Frontend & Utilities
-streamlit
-pandas
+
+youtube-transcript-api
 python-dotenv
+
 requests
 
+certifi

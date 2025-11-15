@@ -75,3 +75,4 @@ pids
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 gcp-creds.json
+.backup_simargl_20251115_213737
