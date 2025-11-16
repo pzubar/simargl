@@ -19,7 +19,7 @@ import os
 import vertexai
 from absl import app, flags
 from dotenv import load_dotenv
-from simargl_agent.agent import agent as root_agent
+from simargl_agent.agent import root_agent
 from vertexai import agent_engines
 from vertexai.preview.reasoning_engines import AdkApp
 
@@ -50,8 +50,8 @@ def create() -> None:
             "google-auth-httplib2",
             "google-auth-oauthlib",
             "youtube-transcript-api",
-            "streamlit",
-            "pandas",
+#             "streamlit",
+#             "pandas",
             "python-dotenv",
             "requests",
         ],

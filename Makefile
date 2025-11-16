@@ -29,13 +29,8 @@ playground:
 # Deploy the agent remotely
 deploy:
 	# Export dependencies to requirements file using uv export.
-	(uv export --no-hashes --no-header --no-dev --no-emit-project --no-annotate > simargl_agent/app_utils/.requirements.txt 2>/dev/null || \
-	uv export --no-hashes --no-header --no-dev --no-emit-project > simargl_agent/app_utils/.requirements.txt) && \
-	$$VIRTUAL_ENV/bin/python deployment/deploy.py \
-		--source-packages=./simargl_agent \
-		--entrypoint-module=simargl_agent.agent_engine_app \
-		--entrypoint-object=agent_engine \
-		--requirements-file=simargl_agent/app_utils/.requirements.txt
+	(uv export --no-hashes --no-header --no-dev --no-emit-project > simargl_agent/app_utils/.requirements.txt) && \
+	uv run python deployment/deploy.py --create
 
 # Alias for 'make deploy' for backward compatibility
 backend: deploy

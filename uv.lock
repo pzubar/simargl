@@ -8,6 +8,15 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "absl-py"
+version = "2.3.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/10/2a/c93173ffa1b39c1d0395b7e842bbdc62e556ca9d8d3b5572926f3e4ca752/absl_py-2.3.1.tar.gz", hash = "sha256:a97820526f7fbfd2ec1bce83f3f25e3a14840dac0d8e02a0b71cd75db3f77fc9", size = 116588, upload-time = "2025-07-03T09:31:44.05Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8f/aa/ba0014cc4659328dc818a28827be78e6d97312ab0cb98105a770924dc11e/absl_py-2.3.1-py3-none-any.whl", hash = "sha256:eeecf07f0c2a93ace0772c92e596ace6d3d3996c042b2128459aaae2a76de11d", size = 135811, upload-time = "2025-07-03T09:31:42.253Z" },
+]
+
+[[package]]
 name = "aiohappyeyeballs"
 version = "2.6.1"
 source = { registry = "https://pypi.org/simple" }
@@ -3587,11 +3596,13 @@ name = "simargl"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "absl-py" },
     { name = "google-adk" },
     { name = "google-cloud-aiplatform", extra = ["agent-engines", "evaluation"] },
     { name = "google-cloud-logging" },
     { name = "opentelemetry-exporter-gcp-trace" },
     { name = "protobuf" },
+    { name = "youtube-transcript-api" },
 ]
 
 [package.optional-dependencies]
@@ -3615,6 +3626,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "absl-py", specifier = ">=2.1.0,<3.0.0" },
     { name = "codespell", marker = "extra == 'lint'", specifier = ">=2.2.0,<3.0.0" },
     { name = "google-adk", specifier = ">=1.15.0,<2.0.0" },
     { name = "google-cloud-aiplatform", extras = ["evaluation", "agent-engines"], specifier = ">=1.118.0,<2.0.0" },
@@ -3626,6 +3638,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'lint'", specifier = ">=0.4.6,<1.0.0" },
     { name = "types-pyyaml", marker = "extra == 'lint'", specifier = ">=6.0.12.20240917,<7.0.0" },
     { name = "types-requests", marker = "extra == 'lint'", specifier = ">=2.32.0.20240914,<3.0.0" },
+    { name = "youtube-transcript-api", specifier = ">=0.6.2,<1.0.0" },
 ]
 provides-extras = ["jupyter", "lint"]
 
@@ -4228,6 +4241,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/c8/9a/6ad1a9b37c2f72874f93e691b2e7ecb6137fb2b899983125db4204e47575/yarl-1.22.0-cp312-cp312-win_amd64.whl", hash = "sha256:8884d8b332a5e9b88e23f60bb166890009429391864c685e17bd73a9eda9105c", size = 87213, upload-time = "2025-10-06T14:10:11.369Z" },
     { url = "https://files.pythonhosted.org/packages/44/c5/c21b562d1680a77634d748e30c653c3ca918beb35555cff24986fff54598/yarl-1.22.0-cp312-cp312-win_arm64.whl", hash = "sha256:ea70f61a47f3cc93bdf8b2f368ed359ef02a01ca6393916bc8ff877427181e74", size = 81330, upload-time = "2025-10-06T14:10:13.112Z" },
     { url = "https://files.pythonhosted.org/packages/73/ae/b48f95715333080afb75a4504487cbe142cae1268afc482d06692d605ae6/yarl-1.22.0-py3-none-any.whl", hash = "sha256:1380560bdba02b6b6c90de54133c81c9f2a453dee9912fe58c1dcced1edb7cff", size = 46814, upload-time = "2025-10-06T14:12:53.872Z" },
+]
+
+[[package]]
+name = "youtube-transcript-api"
+version = "0.6.3"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "defusedxml" },
+    { name = "requests" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d7/f1/55ff16f7198bdf5204fd7be3c49122e07092a3da47bf4e1560989a4c0255/youtube_transcript_api-0.6.3.tar.gz", hash = "sha256:4d1f6451ae508390a5279f98519efb45e091bf60d3cca5ea0bb122800ab6a011", size = 612052, upload-time = "2024-11-18T09:53:40.79Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/80/d4/be6fd091d29ae49d93813e598769e7ab453419a4de640e1755bf20911cce/youtube_transcript_api-0.6.3-py3-none-any.whl", hash = "sha256:297a74c1863d9df88f6885229f33a7eda61493d73ecb13ec80e876b65423e9b4", size = 622293, upload-time = "2024-11-18T09:53:38.049Z" },
 ]
 
 [[package]]
