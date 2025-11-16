@@ -18,6 +18,7 @@ from config.settings import (
 
 from .channel_memory_service import ChannelMemoryItem, ChannelMemoryService
 from .file_search_service import FileSearchService
+from .local_memory_service import LocalMemoryService
 
 _channel_memory_service: Optional[ChannelMemoryService] = None
 _file_search_service: Optional[FileSearchService] = None
@@ -26,13 +27,14 @@ _file_search_service: Optional[FileSearchService] = None
 def get_channel_memory_service() -> ChannelMemoryService:
     global _channel_memory_service  # noqa: PLW0603
     if _channel_memory_service is None:
-        _channel_memory_service = ChannelMemoryService(
-            project_id=GCP_PROJECT_ID,
-            location=GCP_REGION,
-            agent_engine_id=VERTEX_MEMORY_AGENT_ENGINE_ID,
-            app_name=ADK_APP_NAME,
-            enabled=MEMORY_ENABLED,
-        )
+#         _channel_memory_service = ChannelMemoryService(
+#             project_id=GCP_PROJECT_ID,
+#             location=GCP_REGION,
+#             agent_engine_id=VERTEX_MEMORY_AGENT_ENGINE_ID,
+#             app_name=ADK_APP_NAME,
+#             enabled=MEMORY_ENABLED,
+#         )
+        _channel_memory_service = LocalMemoryService() # Temporary switch to local memory service
     return _channel_memory_service
 
 

@@ -116,6 +116,10 @@ class VideoDetailsInput(BaseModel):
 
 class ChannelVideoSearchInput(BaseModel):
     channel_id: str = Field(..., description="The ID of the YouTube channel.")
+    q: str = Field(
+        "",
+        description="Search query string. An empty string returns all videos.",
+    )
     published_after: Optional[str] = Field(
         None,
         description="Fetch videos published on or after this RFC3339 timestamp (e.g. 2024-08-01T00:00:00Z).",
@@ -487,6 +491,7 @@ class SearchChannelVideosTool(BaseTool):
     async def run_async(self, *, args: dict[str, Any], tool_context) -> Dict[str, Any]:
         return self(
             channel_id=args["channel_id"],
+            q=args.get("q", ""),
             published_after=args.get("published_after"),
             published_before=args.get("published_before"),
             max_results=args.get("max_results", YOUTUBE_DEFAULT_MAX_RESULTS),
@@ -495,6 +500,7 @@ class SearchChannelVideosTool(BaseTool):
     def __call__(
         self,
         channel_id: str,
+        q: str = "",
         published_after: Optional[str] = None,
         published_before: Optional[str] = None,
         max_results: int = YOUTUBE_DEFAULT_MAX_RESULTS,
@@ -506,6 +512,7 @@ class SearchChannelVideosTool(BaseTool):
             params: Dict[str, Any] = {
                 "part": "snippet",
                 "channelId": channel_id,
+                "q": q,
                 "maxResults": max_results,
                 "order": order,
                 "type": "video",

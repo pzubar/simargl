@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict
+
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.apps.app import App
 

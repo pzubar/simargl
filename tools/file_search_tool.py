@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import logging
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 
 from google.adk.tools import BaseTool, _automatic_function_calling_util as tool_utils
 from pydantic import BaseModel, Field
@@ -22,9 +23,9 @@ class UploadDocumentInput(BaseModel):
     text_content: str = Field(..., description="Full text content to ingest.")
     document_display_name: str = Field(..., description="Display name for the File Search document.")
     mime_type: Optional[str] = Field("text/plain", description="MIME type for the uploaded document.")
-    metadata: Optional[Dict[str, str]] = Field(
-        default=None,
-        description="Optional key/value metadata attached to the File Search document.",
+    metadata: str = Field(
+        default="",
+        description="Optional key/value metadata attached to the File Search document as a JSON string.",
     )
 
 
@@ -66,7 +67,7 @@ class CreateFileSearchStoreTool(BaseTool):
         declaration.name = self.NAME
         return declaration
 
-    async def run_async(self, *, args: dict[str, Any], tool_context) -> Dict[str, str]:
+    async def run_async(self, *, args: Dict[str, Any], tool_context) -> Dict[str, str]:
         return self(display_name=args["display_name"])
 
     def __call__(self, display_name: str) -> Dict[str, str]:  # type: ignore[override]
@@ -76,6 +77,8 @@ class CreateFileSearchStoreTool(BaseTool):
 
 class UploadFileSearchDocumentTool(BaseTool):
     """Upload text content into an existing File Search store."""
+
+
 
     NAME = "upload_file_search_document"
     DESCRIPTION = "Uploads raw text (transcripts, comments, notes) into a File Search store."
@@ -98,13 +101,15 @@ class UploadFileSearchDocumentTool(BaseTool):
         declaration.name = self.NAME
         return declaration
 
-    async def run_async(self, *, args: dict[str, Any], tool_context) -> Dict[str, Optional[str]]:
+    async def run_async(self, *, args: Dict[str, Any], tool_context) -> Dict[str, Optional[str]]:
+        metadata_str = args.get("metadata", "")
+        metadata = json.loads(metadata_str) if metadata_str else None
         return self(
             store_name=args["store_name"],
             text_content=args["text_content"],
             document_display_name=args["document_display_name"],
             mime_type=args.get("mime_type", "text/plain"),
-            metadata=args.get("metadata"),
+            metadata=metadata,
         )
 
     def __call__(  # type: ignore[override]
@@ -151,7 +156,7 @@ class QueryFileSearchStoreTool(BaseTool):
         declaration.name = self.NAME
         return declaration
 
-    async def run_async(self, *, args: dict[str, Any], tool_context) -> Dict[str, object]:
+    async def run_async(self, *, args: Dict[str, Any], tool_context) -> Dict[str, object]:
         return self(
             store_name=args["store_name"],
             query=args["query"],
@@ -184,5 +189,3 @@ __all__ = [
     "UploadFileSearchDocumentTool",
     "QueryFileSearchStoreTool",
 ]
-
-
