@@ -1,0 +1,30 @@
+[
+  {
+    "input_text": "How did Sternenko's view on mobilization change in 2024?",
+    "expected_tool_calls": [
+      "consult_historian_agent"
+    ],
+    "ground_truth": "Sternenko emphasized the need for mobilization in 2023 but shifted to criticizing specific methods in 2024."
+  },
+  {
+    "input_text": "Find the latest videos from Sternenko.",
+    "expected_tool_calls": [
+      "consult_discovery_agent"
+    ],
+    "ground_truth": "Here are the latest videos..."
+  },
+  {
+    "input_text": "Analyze the sentiment of the comments on video ID 12345.",
+    "expected_tool_calls": [
+      "consult_analyst_agent"
+    ],
+    "ground_truth": "The sentiment is mostly positive."
+  },
+  {
+    "input_text": "List the last 5 videos from @sternenko channel with view counts.",
+    "expected_tool_calls": [
+      "consult_discovery_agent"
+    ],
+    "ground_truth": "Here are the last 5 videos from @sternenko with their view counts..."
+  }
+]

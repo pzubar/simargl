@@ -14,7 +14,7 @@ from config.settings import STREAMLIT_BASE_URL
 
 logger = logging.getLogger(__name__)
 
-AGENTS_DIR = Path(__file__).resolve().parent / "agents"
+AGENTS_DIR = Path(__file__).resolve().parent
 
 
 def build_app():

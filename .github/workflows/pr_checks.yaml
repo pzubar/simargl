@@ -60,3 +60,6 @@ jobs:
 
       - name: Run integration tests
         run: uv run pytest tests/integration
+
+      - name: Run agent evaluation
+        run: uv run python tests/evaluation/eval_agent.py

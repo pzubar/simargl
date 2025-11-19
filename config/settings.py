@@ -59,8 +59,8 @@ STREAMLIT_BASE_URL = os.getenv("STREAMLIT_BASE_URL", "http://localhost:8501")
 ADK_APP_NAME = os.getenv("ADK_APP_NAME", "simargl_agent")
 
 # --- Gemini model selection ---
-GEMINI_MODEL_DEFAULT = os.getenv("GEMINI_MODEL_DEFAULT", "gemini-2.5-flash-lite")
-GEMINI_MODEL_PREMIUM = os.getenv("GEMINI_MODEL_PREMIUM", "gemini-2.5-flash")
+GEMINI_MODEL_DEFAULT = os.getenv("GEMINI_MODEL_DEFAULT", "gemini-2.5-flash")
+GEMINI_MODEL_PREMIUM = os.getenv("GEMINI_MODEL_PREMIUM", "gemini-2.5-pro")
 DEFAULT_GEMINI_MODEL = GEMINI_MODEL_DEFAULT
 # Backwards compatibility for older imports
 PREMIUM_GEMINI_MODEL = GEMINI_MODEL_PREMIUM

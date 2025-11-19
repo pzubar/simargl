@@ -97,6 +97,59 @@ def sidebar_channel_manager() -> List[str]:
     return channels
 
 
+def sidebar_batch_manager() -> None:
+    """Render the sidebar controls for managing batch jobs."""
+    from services.batch_service import BatchJobService
+    
+    st.sidebar.header("Batch Jobs")
+    service = BatchJobService()
+    jobs = service._load_jobs()
+    
+    if not jobs:
+        st.sidebar.info("No batch jobs found.")
+        return
+
+    # Sort by creation time descending
+    sorted_jobs = sorted(jobs.values(), key=lambda x: x["created_at"], reverse=True)
+    
+    for job in sorted_jobs:
+        job_id = job["job_id"]
+        short_id = job_id.split("/")[-1] if "/" in job_id else job_id
+        state = job["state"]
+        
+        with st.sidebar.expander(f"{state}: ...{short_id[-6:]}", expanded=False):
+            st.caption(f"ID: {short_id}")
+            st.caption(f"Created: {job['created_at']}")
+            st.caption(f"Videos: {len(job['video_ids'])}")
+            
+            if state == "COMPLETED":
+                if st.button("Sync Results", key=f"sync-{short_id}"):
+                    with st.spinner("Syncing results..."):
+                        try:
+                            # We call the agent to run the tool so it's recorded in the conversation
+                            # But for UI convenience, we could also call service directly.
+                            # Let's call the tool via agent to ensure RAG ingestion happens properly via the tool logic
+                            # Actually, calling the tool directly here is cleaner for "admin" tasks, 
+                            # but the tool logic handles RAG ingestion. 
+                            # Let's instantiate the tool directly to reuse logic without agent overhead
+                            from tools.batch_tool import GetBatchResultsTool
+                            import asyncio
+                            
+                            tool = GetBatchResultsTool()
+                            # Run async tool in sync context
+                            result = asyncio.run(tool(job_id=job_id, file_search_store_name="default_store")) # TODO: Make store configurable
+                            
+                            st.success(f"Synced! {result.get('message')}")
+                            st.experimental_rerun()
+                        except Exception as e:
+                            st.error(f"Sync failed: {e}")
+            
+            elif state in ["PENDING", "PROCESSING"]:
+                if st.button("Check Status", key=f"check-{short_id}"):
+                    service.check_job_status(job_id)
+                    st.experimental_rerun()
+
+
 def ensure_session_state() -> None:
     """Initialize session state for chat messages."""
     if "messages" not in st.session_state:
@@ -125,6 +178,7 @@ def main() -> None:
     st.caption("Ask research questions about your tracked YouTube channels.")
 
     sidebar_channel_manager()
+    sidebar_batch_manager()
     ensure_session_state()
     render_chat_history()
 

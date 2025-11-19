@@ -44,7 +44,7 @@
     "title": "STERNENKO",
     "description": "\nМагазин мого мерчу - https://www.instagram.com/smerchua/\n\n❗️Мій додатковий (резервний) канал - https://bit.ly/3qkdsCK\n\n🤝Підтримати https://www.buymeacoffee.com/sternenko/membership",
     "owner": null,
-    "notes": "[MEMORY_FACT from agent]: Channel title: STERNENKO | Handle: @@sternenko | Subscribers: 2,100,000 | Videos: 2,679",
+    "notes": "[MEMORY_FACT from agent]: Channel title: STERNENKO | Handle: @@sternenko | Subscribers: 2,100,000 | Videos: 2,679\n[MEMORY_FACT from agent]: Channel title: STERNENKO | Handle: @@sternenko | Subscribers: 2,100,000 | Videos: 2,681\n[MEMORY_FACT from agent]: Channel title: STERNENKO | Handle: @@sternenko | Subscribers: 2,100,000 | Videos: 2,681\n[MEMORY_FACT from agent]: Channel title: STERNENKO | Handle: @@sternenko | Subscribers: 2,100,000 | Videos: 2,681",
     "tags": [],
     "aliases": [
       "@sternenko",
@@ -54,16 +54,16 @@
     "file_search_store_name": null,
     "metadata": {
       "subscriber_count": 2100000,
-      "video_count": 2679,
-      "view_count": 1227198227,
+      "video_count": 2681,
+      "view_count": 1228141916,
       "latest_video_id": null,
-      "last_refreshed_at": "2025-11-17T20:34:02.913126",
+      "last_refreshed_at": "2025-11-19T08:54:56.146545",
       "snapshot": {
         "statistics": {
-          "viewCount": "1227198227",
+          "viewCount": "1228141916",
           "subscriberCount": "2100000",
           "hiddenSubscriberCount": false,
-          "videoCount": "2679"
+          "videoCount": "2681"
         },
         "snippet": {
           "publishedAt": "2013-03-09T21:40:02Z",
@@ -73,44 +73,6 @@
       }
     },
     "created_at": "2025-11-17T20:34:02.706541",
-    "updated_at": "2025-11-17T20:34:02.913543"
-  },
-  {
-    "channel_id": "UC5HBd4l_kpba5b0O1pK-Bfg",
-    "handle": "@sternenko",
-    "custom_url": "@STERNENKO",
-    "title": "STERNENKO",
-    "description": "\nМагазин мого мерчу - https://www.instagram.com/smerchua/\n\n❗️Мій додатковий (резервний) канал - https://bit.ly/3qkdsCK\n\n🤝Підтримати https://www.buymeacoffee.com/sternenko/membership",
-    "owner": null,
-    "notes": "[MEMORY_FACT from agent]: Channel title: STERNENKO | Handle: @@sternenko | Subscribers: 2,100,000 | Videos: 2,679",
-    "tags": [],
-    "aliases": [
-      "@sternenko",
-      "STERNENKO",
-      "youtube.com/@STERNENKO"
-    ],
-    "file_search_store_name": null,
-    "metadata": {
-      "subscriber_count": 2100000,
-      "video_count": 2679,
-      "view_count": 1227198227,
-      "latest_video_id": null,
-      "last_refreshed_at": "2025-11-17T20:34:02.913126",
-      "snapshot": {
-        "statistics": {
-          "viewCount": "1227198227",
-          "subscriberCount": "2100000",
-          "hiddenSubscriberCount": false,
-          "videoCount": "2679"
-        },
-        "snippet": {
-          "publishedAt": "2013-03-09T21:40:02Z",
-          "description": "\nМагазин мого мерчу - https://www.instagram.com/smerchua/\n\n❗️Мій додатковий (резервний) канал - https://bit.ly/3qkdsCK\n\n🤝Підтримати https://www.buymeacoffee.com/sternenko/membership",
-          "title": "STERNENKO"
-        }
-      }
-    },
-    "created_at": "2025-11-17T20:34:02.706541",
-    "updated_at": "2025-11-17T20:34:02.913543"
+    "updated_at": "2025-11-19T08:54:56.147255"
   }
 ]

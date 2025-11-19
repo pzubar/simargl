@@ -11,6 +11,10 @@ from .file_search_tool import (
     UploadFileSearchDocumentTool,
 )
 from .transcript_tool import AnalyzeVideoTool
+from .batch_tool import (
+    SubmitBatchJobTool,
+    GetBatchResultsTool,
+)
 from .youtube_tool import (
     GetLatestVideosTool,
     GetVideoCommentsTool,
@@ -25,9 +29,9 @@ __all__ = [
     "UploadFileSearchDocumentTool",
     "RefreshChannelMetadataTool",
     "AnalyzeVideoTool",
+    "SubmitBatchJobTool",
+    "GetBatchResultsTool",
     "GetLatestVideosTool",
     "GetVideoCommentsTool",
     "SearchChannelVideosTool",
 ]
-
-
