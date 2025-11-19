@@ -29,7 +29,7 @@ class RefreshChannelMetadataTool(BaseTool):
         "Refreshes YouTube channel metadata (subscribers, description, aliases) and persists it in the registry."
     )
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__(
             name=self.NAME,
             description=self.DESCRIPTION,
@@ -57,5 +57,3 @@ class RefreshChannelMetadataTool(BaseTool):
 
 
 __all__ = ["RefreshChannelMetadataTool"]
-
-

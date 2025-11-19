@@ -56,7 +56,7 @@ YOUTUBE_DEFAULT_COMMENT_MAX_RESULTS = int(os.getenv("YOUTUBE_DEFAULT_COMMENT_MAX
 # Streamlit / ADK integration
 ADK_SERVER_HOST = os.getenv("ADK_SERVER_HOST", "http://localhost:8000")
 STREAMLIT_BASE_URL = os.getenv("STREAMLIT_BASE_URL", "http://localhost:8501")
-ADK_APP_NAME = os.getenv("ADK_APP_NAME", "simargl-youtube-assistant")
+ADK_APP_NAME = os.getenv("ADK_APP_NAME", "simargl_agent")
 
 # --- Gemini model selection ---
 GEMINI_MODEL_DEFAULT = os.getenv("GEMINI_MODEL_DEFAULT", "gemini-2.5-flash-lite")

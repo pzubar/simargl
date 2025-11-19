@@ -1,5 +1,5 @@
 Use 
-`export PYTHONPATH=simargl:$PYTHONPATH && export SSL_CERT_FILE=$(python -m certifi) && export ADK_APP_NAME=simargl && adk web --port 8000 /Users/pzubar/research/simargl/agents`
+`export PYTHONPATH=simargl:$PYTHONPATH && export SSL_CERT_FILE=$(python -m certifi) && export ADK_APP_NAME=simargl_agent && adk web --port 8000 /Users/pzubar/research/simargl/agents`
 to start
 
 ### 1. Configuration & Environment (`config/settings.py`)
@@ -33,7 +33,7 @@ All of these tools are registered with the orchestrator agent along with human-r
 
 ### 6. Front-end & User Experience
 - **Streamlit app (`app.py`):** Provides the analyst-facing UI—channel management sidebar (backed by the registry/refresh service) and a chat pane that posts queries to the ADK FastAPI endpoint. Responses are rendered as formatted JSON for debugging/testing.
-- **ADK Dev UI:** Used during development to trace tool calls, inspect events, and debug Gemini errors. Launch with `adk web --port 8000 agents/…` while exporting `PYTHONPATH`, `ADK_APP_NAME`, and certificate envs.
+- **ADK Dev UI:** Used during development to trace tool calls, inspect events, and debug Gemini errors. Launch with `adk web --port 8000 agents/…` (select the `simargl_agent` folder) while exporting `PYTHONPATH`, `ADK_APP_NAME`, and certificate envs.
 
 ### 7. Data Files & Defaults
 - `channels.json`: a curated seed list of Ukrainian political/news channels (IDs, owners, handles). The Streamlit app can load it into the registry or let analysts add new channels manually.

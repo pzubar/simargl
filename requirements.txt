@@ -13,7 +13,7 @@ youtube-transcript-api
 
 # Frontend & Utilities
 
-youtube-transcript-api
+streamlit
 python-dotenv
 
 requests

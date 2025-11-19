@@ -7,6 +7,14 @@ from typing import Any, Dict
 from google.adk.agents.llm_agent import LlmAgent
 from google.adk.apps.app import App
 
+import sys
+from pathlib import Path
+
+# Ensure we can import from the project root
+project_root = Path(__file__).resolve().parent.parent.parent
+if str(project_root) not in sys.path:
+    sys.path.insert(0, str(project_root))
+
 from agents.orchestrator import ORCHESTRATOR_SYSTEM_PROMPT
 from config.settings import ADK_APP_NAME, DEFAULT_GEMINI_MODEL
 from tools.analysis_tool import SentimentAnalysisTool, SummarizeTool
@@ -57,5 +65,3 @@ app = App(
 )
 
 __all__ = ["app", "root_agent"]
-
-

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -44,6 +45,36 @@ def _maybe_normalize_timestamp(value: Optional[str]) -> Optional[str]:
     except ValueError:
         logger.warning("Unable to parse timestamp '%s'; passing through as-is.", value)
         return value
+
+
+def _parse_iso8601_duration(duration_iso: str) -> int:
+    """Parse ISO 8601 duration string (e.g., 'PT1H5M10S') to total seconds.
+    
+    Args:
+        duration_iso: ISO 8601 duration string (e.g., 'PT1H5M10S', 'PT45M', 'PT30S')
+        
+    Returns:
+        Total duration in seconds
+        
+    Raises:
+        ValueError: If the duration string is invalid
+    """
+    if not duration_iso.startswith("PT"):
+        raise ValueError(f"Invalid ISO 8601 duration format: {duration_iso}")
+    
+    # Extract hours, minutes, and seconds using regex
+    # Pattern matches: PT[hours]H[minutes]M[seconds]S
+    pattern = r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?"
+    match = re.match(pattern, duration_iso)
+    
+    if not match:
+        raise ValueError(f"Invalid ISO 8601 duration format: {duration_iso}")
+    
+    hours = int(match.group(1) or 0)
+    minutes = int(match.group(2) or 0)
+    seconds = int(match.group(3) or 0)
+    
+    return hours * 3600 + minutes * 60 + seconds
 
 
 def get_youtube_service():
@@ -438,15 +469,34 @@ class GetVideoDetailsTool(BaseTool):
         try:
             service = get_youtube_service()
             request = service.videos().list(
-                part="snippet,statistics",
+                part="snippet,statistics,contentDetails",
                 id=video_id,
             )
             response = request.execute()
             items: List[Dict[str, Any]] = response.get("items", [])
-            return {
+            
+            if not items:
+                return {
+                    "video_id": video_id,
+                    "error": "Video not found.",
+                }
+            
+            item = items[0]
+            result = {
                 "video_id": video_id,
                 "videos": items,
             }
+            
+            # Parse duration from ISO 8601 format (e.g., "PT1H5M10S") to seconds
+            if "contentDetails" in item and "duration" in item["contentDetails"]:
+                duration_iso = item["contentDetails"]["duration"]
+                try:
+                    duration_seconds = _parse_iso8601_duration(duration_iso)
+                    result["duration_seconds"] = duration_seconds
+                except ValueError as e:
+                    logger.warning("Failed to parse duration for video %s: %s", video_id, e)
+            
+            return result
         except HttpError as http_err:
             logger.exception("YouTube API error when fetching details for %s", video_id)
             return {

@@ -10,7 +10,7 @@ from .file_search_tool import (
     QueryFileSearchStoreTool,
     UploadFileSearchDocumentTool,
 )
-from .transcript_tool import TranscriptTool
+from .transcript_tool import AnalyzeVideoTool
 from .youtube_tool import (
     GetLatestVideosTool,
     GetVideoCommentsTool,
@@ -24,7 +24,7 @@ __all__ = [
     "QueryFileSearchStoreTool",
     "UploadFileSearchDocumentTool",
     "RefreshChannelMetadataTool",
-    "TranscriptTool",
+    "AnalyzeVideoTool",
     "GetLatestVideosTool",
     "GetVideoCommentsTool",
     "SearchChannelVideosTool",
