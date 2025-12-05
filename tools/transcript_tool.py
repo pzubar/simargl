@@ -19,8 +19,11 @@ from config.settings import (
     BASE_DIR,
     DEFAULT_GEMINI_MODEL,
     GEMINI_MODEL_PREMIUM,
+    YOUTUBE_API_KEY, # Import API Key
 )
+from googleapiclient.discovery import build # Import build
 from memory import get_file_search_service
+
 
 logger = logging.getLogger(__name__)
 
@@ -111,9 +114,12 @@ class VideoAnalysis(BaseModel):
 class AnalyzeVideoInput(BaseModel):
     """Input schema for AnalyzeVideoTool."""
 
-    video_url: str = Field(description="The full YouTube video URL.")
-    video_duration_seconds: int = Field(
-        description="Total video duration in seconds (from GetVideoDetailsTool)."
+    video_url: Optional[str] = Field(
+        default=None, description="The full YouTube video URL (optional if video_id provided)."
+    )
+    video_duration_seconds: Optional[int] = Field(
+        default=None,
+        description="Total video duration in seconds. Optional; tool will fetch if missing.",
     )
     video_id: Optional[str] = Field(
         default=None, description="YouTube video ID (extracted from URL if not provided)."
@@ -193,6 +199,31 @@ class AnalyzeVideoTool(BaseTool):
         except Exception:
             pass
         return None
+
+    def _get_video_details_from_api(self, video_id: str) -> int:
+        """Fetch video duration from YouTube API."""
+        try:
+            service = build("youtube", "v3", developerKey=YOUTUBE_API_KEY, cache_discovery=False)
+            request = service.videos().list(part="contentDetails", id=video_id)
+            response = request.execute()
+            items = response.get("items", [])
+            if not items:
+                return 0
+            
+            duration_iso = items[0]["contentDetails"]["duration"]
+            # Minimal parser for PT#H#M#S
+            import re
+            pattern = r"PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?"
+            match = re.match(pattern, duration_iso)
+            if not match:
+                return 0
+            hours = int(match.group(1) or 0)
+            minutes = int(match.group(2) or 0)
+            seconds = int(match.group(3) or 0)
+            return hours * 3600 + minutes * 60 + seconds
+        except Exception as e:
+            logger.error(f"Failed to fetch video details for {video_id}: {e}")
+            return 0
 
     def _get_artifacts_dir(self, video_id: str) -> Path:
         """Get the artifacts directory for a video."""
@@ -410,8 +441,8 @@ class AnalyzeVideoTool(BaseTool):
 
     async def __call__(
         self,
-        video_url: str,
-        video_duration_seconds: int,
+        video_url: Optional[str] = None,
+        video_duration_seconds: Optional[int] = None,
         video_id: Optional[str] = None,
         channel_id: Optional[str] = None,
         video_title: Optional[str] = None,
@@ -421,15 +452,28 @@ class AnalyzeVideoTool(BaseTool):
     ) -> Dict[str, Any]:
         """Analyze video and return transcript and analysis."""
         try:
-            # Extract video ID if not provided
+            # 1. Resolve Video ID
             if not video_id:
-                video_id = self._extract_video_id(video_url)
+                if video_url:
+                    video_id = self._extract_video_id(video_url)
+                
                 if not video_id:
                     return {
-                        "error": "Could not extract video ID from URL",
-                        "video_url": video_url,
+                        "error": "Video ID is required. Provide either video_id or a valid video_url.",
+                        "status": "error"
                     }
 
+            # 2. Resolve URL
+            if not video_url:
+                video_url = f"https://www.youtube.com/watch?v={video_id}"
+
+            # 3. Resolve Duration
+            if video_duration_seconds is None:
+                logger.info(f"Duration missing for {video_id}. Fetching from API...")
+                video_duration_seconds = self._get_video_details_from_api(video_id)
+                if video_duration_seconds == 0:
+                     logger.warning(f"Could not fetch duration for {video_id}. Assuming short video.")
+            
             # Determine if chunking is needed
             needs_chunking = video_duration_seconds > MAX_CHUNK_DURATION_SECONDS
 
