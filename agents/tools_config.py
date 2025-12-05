@@ -27,15 +27,17 @@ DISCOVERY_TOOLS = [
 
 ANALYST_TOOLS = [
     AnalyzeVideoTool(),
+    GetVideoDetailsTool(),
     GetVideoCommentsTool(),
+
     SummarizeTool(),
     SentimentAnalysisTool(),
-    # UploadFileSearchDocumentTool(), # Analyst needs to save results (Disabled due to Vertex AI client limitation)
+    UploadFileSearchDocumentTool(), # Analyst needs to save results
     SubmitBatchJobTool(),
     GetBatchResultsTool(),
 ]
 
 MEMORY_TOOLS = [
     QueryFileSearchStoreTool(),
-    # CreateFileSearchStoreTool(), # Not supported in Vertex AI client
+    CreateFileSearchStoreTool(),
 ]

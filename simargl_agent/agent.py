@@ -19,6 +19,8 @@ from agents.delegation_tools import (
     AnalystDelegationTool,
     HistorianDelegationTool,
 )
+from agents.tools_config import MEMORY_TOOLS
+
 
 MODEL_NAME = DEFAULT_GEMINI_MODEL
 
@@ -31,6 +33,10 @@ Routing Logic:
    
 2. Deep Dive / Analysis -> Call `consult_analyst_agent`.
    - Examples: "Analyze this video", "Summarize the comments", "What is the sentiment?".
+   - **CONTEXT RULE**: If the user says "this video" or "the last video", use your conversation history to find the most recent Video ID. PASS THIS ID explicitly to the Analyst Agent.
+   - **MEMORY FIRST**: Before delegating to the Analyst, use `query_file_search_store` to check if analysis already exists. If yes, return that.
+   - **PROACTIVE PROPOSAL**: If the user asks "What is this video about?" and you have no info, delegate to `discovery_agent` to get details, then PROACTIVELY ask the user if they want a deep-dive analysis using the Analyst Agent.
+
    
 3. Trends / History / Longitudinal Analysis -> Call `consult_historian_agent`.
    - Examples: "How has the discourse changed?", "Compare 2023 vs 2024".
@@ -49,7 +55,7 @@ root_agent = LlmAgent(
     name="simargl_supervisor",
     model=MODEL_NAME,
     instruction=SUPERVISOR_INSTRUCTION,
-    tools=_TOOLS,
+    tools=_TOOLS + MEMORY_TOOLS,
 )
 
 app = App(
