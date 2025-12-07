@@ -1,6 +1,6 @@
 """Tool configuration for Simargl agents."""
 
-from tools.analysis_tool import SentimentAnalysisTool, SummarizeTool
+from tools.analysis_tool import FileAnalysisTool
 from tools.channel_registry_tool import RefreshChannelMetadataTool
 from tools.file_search_tool import (
     CreateFileSearchStoreTool,
@@ -15,6 +15,7 @@ from tools.youtube_tool import (
     SearchChannelVideosTool,
     GetVideoDetailsTool,
     GetChannelDetailsTool,
+    UploadTranscriptToGeminiFileTool,
 )
 
 DISCOVERY_TOOLS = [
@@ -27,11 +28,9 @@ DISCOVERY_TOOLS = [
 
 ANALYST_TOOLS = [
     AnalyzeVideoTool(),
-    GetVideoDetailsTool(),
     GetVideoCommentsTool(),
-
-    SummarizeTool(),
-    SentimentAnalysisTool(),
+    FileAnalysisTool(),
+    UploadTranscriptToGeminiFileTool(),
     UploadFileSearchDocumentTool(), # Analyst needs to save results
     SubmitBatchJobTool(),
     GetBatchResultsTool(),

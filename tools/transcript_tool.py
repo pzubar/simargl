@@ -5,8 +5,9 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 import os
+import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -18,7 +19,6 @@ from pydantic import BaseModel, Field
 from config.settings import (
     BASE_DIR,
     DEFAULT_GEMINI_MODEL,
-    GEMINI_MODEL_PREMIUM,
     YOUTUBE_API_KEY, # Import API Key
 )
 from googleapiclient.discovery import build # Import build
@@ -27,13 +27,11 @@ from memory import get_file_search_service
 
 logger = logging.getLogger(__name__)
 
-# Max video duration (in seconds) to process in a single API call.
-# The 1M token context (e.g., gemini-2.5-flash) supports ~1 hour (3600s).
-# We set a safer limit to account for prompts and response tokens.
-MAX_CHUNK_DURATION_SECONDS = 3500
-
 # Local storage directory for video artifacts
 ARTIFACTS_BASE_DIR = BASE_DIR / "data" / "video_artifacts"
+
+FILE_POLL_INTERVAL_SECONDS = 1.0
+FILE_POLL_TIMEOUT_SECONDS = 120.0
 
 
 class TranscriptSegment(BaseModel):
@@ -140,21 +138,12 @@ class AnalyzeVideoInput(BaseModel):
         default=DEFAULT_GEMINI_MODEL,
         description="The Gemini model to use for transcript generation (cheap model).",
     )
-    analysis_model: str = Field(
-        default=GEMINI_MODEL_PREMIUM,
-        description="The Gemini model to use for detailed analysis (premium model).",
-    )
 
 
 class AnalyzeVideoTool(BaseTool):
     """
-    Analyzes YouTube videos using Gemini API's Video Understanding feature.
-    
-    This tool performs two separate operations:
-    1. Transcript generation: Uses a cheap model with YouTube URL only (no video data)
-    2. Detailed analysis: Uses a premium model with video data for visual/emotional analysis
-    
-    Automatically handles chunking for long videos and stores results locally.
+    Generates a YouTube transcript with Gemini, uploads it to Gemini Files,
+    and returns a file_uri reference instead of raw text to avoid context bloat.
     """
 
     NAME = "analyze_video"
@@ -174,7 +163,7 @@ class AnalyzeVideoTool(BaseTool):
     def _get_client(self):
         """Get or create Gemini client."""
         if self._client is None:
-            self._client = genai.Client()
+            self._client = genai.Client(vertexai=False)
         return self._client
 
     @property
@@ -231,23 +220,6 @@ class AnalyzeVideoTool(BaseTool):
         artifacts_dir.mkdir(parents=True, exist_ok=True)
         return artifacts_dir
 
-    def _save_chunk_result(
-        self, video_id: str, chunk_index: int, start_time: int, end_time: int, data: Dict[str, Any]
-    ) -> Path:
-        """Save chunk result to local storage."""
-        artifacts_dir = self._get_artifacts_dir(video_id)
-        chunks_dir = artifacts_dir / "chunks"
-        chunks_dir.mkdir(exist_ok=True)
-        chunk_file = chunks_dir / f"chunk_{chunk_index}.json"
-        chunk_data = {
-            "chunk_index": chunk_index,
-            "start_time": start_time,
-            "end_time": end_time,
-            **data,
-        }
-        with chunk_file.open("w", encoding="utf-8") as f:
-            json.dump(chunk_data, f, ensure_ascii=False, indent=2)
-        return chunk_file
 
     def _save_artifact(self, video_id: str, artifact_type: str, data: Dict[str, Any]) -> Path:
         """Save artifact to local storage."""
@@ -256,6 +228,49 @@ class AnalyzeVideoTool(BaseTool):
         with artifact_file.open("w", encoding="utf-8") as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         return artifact_file
+
+    def _wait_for_file_active(self, file_name: str) -> str:
+        """Poll Gemini Files until the upload is ACTIVE or times out."""
+        client = self._get_client()
+        deadline = time.time() + FILE_POLL_TIMEOUT_SECONDS
+        current = client.files.get(name=file_name)
+        while current.state not in {"ACTIVE", "FAILED"} and time.time() < deadline:
+            time.sleep(FILE_POLL_INTERVAL_SECONDS)
+            current = client.files.get(name=file_name)
+        if current.state != "ACTIVE":
+            raise RuntimeError(f"Transcript upload did not become ACTIVE (state={current.state})")
+        return current.uri
+
+    def _upload_transcript_text(
+        self,
+        *,
+        transcript_text: str,
+        video_id: str,
+        video_title: Optional[str],
+    ) -> str:
+        """Persist transcript text to Gemini Files and return a file_uri."""
+        client = self._get_client()
+        temp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                suffix=".txt",
+                delete=False,
+                encoding="utf-8",
+            ) as tmp:
+                tmp.write(transcript_text)
+                tmp.flush()
+                temp_path = tmp.name
+            display_name = video_title or f"Transcript {video_id}"
+            # Gemini API backend does not support display_name; upload with file only.
+            upload = client.files.upload(file=temp_path)
+            return self._wait_for_file_active(upload.name)
+        finally:
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.remove(temp_path)
+                except OSError:
+                    logger.debug("Temporary transcript file already removed: %s", temp_path)
 
     async def _generate_transcript(
         self, video_url: str, model_name: str
@@ -276,7 +291,7 @@ class AnalyzeVideoTool(BaseTool):
             # Use asyncio.to_thread to run synchronous generate_content in async context
             response = await asyncio.to_thread(
                 client.models.generate_content,
-                model=f"models/{model_name}",
+                model=model_name,
                 contents=[
                     types.Content(
                         parts=[
@@ -288,6 +303,7 @@ class AnalyzeVideoTool(BaseTool):
                     )
                 ],
                 config=types.GenerateContentConfig(
+                    response_mime_type="text/plain",
                     response_schema=VideoTranscript.model_json_schema(),
                 ),
             )
@@ -347,7 +363,7 @@ class AnalyzeVideoTool(BaseTool):
             # Use asyncio.to_thread to run synchronous generate_content in async context
             response = await asyncio.to_thread(
                 client.models.generate_content,
-                model=f"models/{model_name}",
+                model=model_name,
                 contents=[
                     types.Content(
                         parts=[
@@ -383,223 +399,85 @@ class AnalyzeVideoTool(BaseTool):
             logger.error(f"Error generating analysis: {e}")
             raise
 
-    async def _process_chunk(
-        self,
-        video_url: str,
-        video_id: str,
-        chunk_index: int,
-        start_time: int,
-        end_time: int,
-        transcript_model: str,
-        analysis_model: str,
-    ) -> Dict[str, Any]:
-        """Process a single chunk of the video."""
-        logger.info(
-            f"Processing chunk {chunk_index} for video {video_id}: {start_time}s-{end_time}s"
-        )
-
-        try:
-            # Generate transcript for this chunk (without video data)
-            transcript = await self._generate_transcript(video_url, transcript_model)
-            
-            # Generate analysis for this chunk (with video data)
-            analysis = await self._generate_analysis(
-                video_url, analysis_model, start_time, end_time
-            )
-
-            chunk_result = {
-                "transcript": transcript.model_dump(),
-                "analysis": analysis.model_dump(),
-            }
-
-            # Save chunk result locally
-            self._save_chunk_result(video_id, chunk_index, start_time, end_time, chunk_result)
-
-            return chunk_result
-        except Exception as e:
-            logger.error(f"Failed to process chunk {chunk_index}: {e}")
-            return {
-                "error": str(e),
-                "chunk_index": chunk_index,
-                "start_time": start_time,
-                "end_time": end_time,
-            }
-
     async def run_async(
         self, *, args: dict[str, Any], tool_context
     ) -> Dict[str, Any]:
         return await self(
-            video_url=args["video_url"],
-            video_duration_seconds=args["video_duration_seconds"],
+            video_url=args.get("video_url"),
+            video_duration_seconds=args.get("video_duration_seconds"),
             video_id=args.get("video_id"),
             channel_id=args.get("channel_id"),
             video_title=args.get("video_title"),
             file_search_store_name=args.get("file_search_store_name"),
             transcript_model=args.get("transcript_model", DEFAULT_GEMINI_MODEL),
-            analysis_model=args.get("analysis_model", GEMINI_MODEL_PREMIUM),
         )
 
     async def __call__(
         self,
         video_url: Optional[str] = None,
-        video_duration_seconds: Optional[int] = None,
+        video_duration_seconds: Optional[int] = None,  # Kept for signature compatibility
         video_id: Optional[str] = None,
         channel_id: Optional[str] = None,
         video_title: Optional[str] = None,
         file_search_store_name: Optional[str] = None,
         transcript_model: str = DEFAULT_GEMINI_MODEL,
-        analysis_model: str = GEMINI_MODEL_PREMIUM,
     ) -> Dict[str, Any]:
-        """Analyze video and return transcript and analysis."""
+        """Fetch a video transcript, upload it to Gemini Files, and return a file reference."""
         try:
-            # 1. Resolve Video ID
             if not video_id:
                 if video_url:
                     video_id = self._extract_video_id(video_url)
-                
                 if not video_id:
                     return {
                         "error": "Video ID is required. Provide either video_id or a valid video_url.",
-                        "status": "error"
+                        "status": "error",
                     }
 
-            # 2. Resolve URL
             if not video_url:
                 video_url = f"https://www.youtube.com/watch?v={video_id}"
 
-            # 3. Resolve Duration
-            if video_duration_seconds is None:
-                logger.info(f"Duration missing for {video_id}. Fetching from API...")
-                video_duration_seconds = self._get_video_details_from_api(video_id)
-                if video_duration_seconds == 0:
-                     logger.warning(f"Could not fetch duration for {video_id}. Assuming short video.")
-            
-            # Determine if chunking is needed
-            needs_chunking = video_duration_seconds > MAX_CHUNK_DURATION_SECONDS
+            logger.info("Generating transcript for %s using model %s", video_id, transcript_model)
+            transcript = await self._generate_transcript(video_url, transcript_model)
 
-            if not needs_chunking:
-                # Process entire video in one go
-                logger.info(f"Processing video {video_id} as single request (duration: {video_duration_seconds}s)")
+            transcript_payload = transcript.model_dump()
+            transcript_text = transcript_payload.get("full_text") or ""
+            if not transcript_text and transcript_payload.get("segments"):
+                transcript_text = "\n".join(
+                    segment.get("text", "") for segment in transcript_payload.get("segments", [])
+                )
 
-                # Generate transcript (without video data)
-                transcript = await self._generate_transcript(video_url, transcript_model)
-                
-                # Generate analysis (with video data)
-                analysis = await self._generate_analysis(video_url, analysis_model)
-
-                # Save artifacts locally
-                self._save_artifact(video_id, "transcript", transcript.model_dump())
-                self._save_artifact(video_id, "analysis", analysis.model_dump())
-
-                result = {
+            if not transcript_text:
+                return {
+                    "status": "error",
                     "video_id": video_id,
-                    "video_url": video_url,
-                    "transcript": transcript.model_dump(),
-                    "analysis": analysis.model_dump(),
-                    "chunks_processed": 1,
-                    "status": "success",
+                    "error": "Transcript text was empty after generation.",
                 }
 
-            else:
-                # Process video in chunks
-                logger.info(
-                    f"Video {video_id} is long ({video_duration_seconds}s). Initiating chunking."
-                )
+            # Persist transcript locally for debugging/auditing.
+            self._save_artifact(video_id, "transcript", transcript_payload)
 
-                num_chunks = math.ceil(video_duration_seconds / MAX_CHUNK_DURATION_SECONDS)
-                tasks = []
+            file_uri = self._upload_transcript_text(
+                transcript_text=transcript_text,
+                video_id=video_id,
+                video_title=video_title,
+            )
 
-                for i in range(num_chunks):
-                    start_time = i * MAX_CHUNK_DURATION_SECONDS
-                    end_time = min((i + 1) * MAX_CHUNK_DURATION_SECONDS, video_duration_seconds)
-                    tasks.append(
-                        self._process_chunk(
-                            video_url,
-                            video_id,
-                            i,
-                            start_time,
-                            end_time,
-                            transcript_model,
-                            analysis_model,
-                        )
-                    )
+            result: Dict[str, Any] = {
+                "status": "success",
+                "video_id": video_id,
+                "video_url": video_url,
+                "file_uri": file_uri,
+                "usage_instruction": "Pass this file_uri to the analysis_tool.",
+            }
 
-                # Process all chunks concurrently
-                chunk_results = await asyncio.gather(*tasks)
-
-                # Combine results
-                all_transcript_segments = []
-                all_visual_descriptions = []
-                all_emotions = []
-                all_key_moments = []
-                all_summaries = []
-
-                for chunk_result in chunk_results:
-                    if "error" not in chunk_result:
-                        chunk_transcript = chunk_result.get("transcript", {})
-                        chunk_analysis = chunk_result.get("analysis", {})
-
-                        # Collect transcript segments
-                        if "segments" in chunk_transcript:
-                            all_transcript_segments.extend(chunk_transcript["segments"])
-                        if "full_text" in chunk_transcript:
-                            all_summaries.append(f"Chunk transcript: {chunk_transcript['full_text']}")
-
-                        # Collect analysis components
-                        if "visual_descriptions" in chunk_analysis:
-                            all_visual_descriptions.extend(chunk_analysis["visual_descriptions"])
-                        if "emotions" in chunk_analysis:
-                            all_emotions.extend(chunk_analysis["emotions"])
-                        if "key_moments" in chunk_analysis:
-                            all_key_moments.extend(chunk_analysis["key_moments"])
-                        if "summary" in chunk_analysis:
-                            all_summaries.append(f"Chunk analysis: {chunk_analysis['summary']}")
-
-                # Create combined results
-                combined_transcript = VideoTranscript(
-                    full_text="\n\n".join(all_summaries),
-                    segments=all_transcript_segments,
-                )
-
-                # Determine overall sentiment (most common from chunks)
-                sentiments = [
-                    chunk_result.get("analysis", {}).get("sentiment", "neutral")
-                    for chunk_result in chunk_results
-                    if "error" not in chunk_result
-                ]
-                overall_sentiment = max(set(sentiments), key=sentiments.count) if sentiments else "neutral"
-
-                combined_analysis = VideoAnalysis(
-                    summary="\n\n".join(all_summaries),
-                    visual_descriptions=all_visual_descriptions,
-                    emotions=all_emotions,
-                    sentiment=overall_sentiment,
-                    key_moments=all_key_moments,
-                )
-
-                # Save combined artifacts locally
-                self._save_artifact(video_id, "transcript", combined_transcript.model_dump())
-                self._save_artifact(video_id, "analysis", combined_analysis.model_dump())
-
-                result = {
-                    "video_id": video_id,
-                    "video_url": video_url,
-                    "transcript": combined_transcript.model_dump(),
-                    "analysis": combined_analysis.model_dump(),
-                    "chunks_processed": num_chunks,
-                    "chunk_results": chunk_results,
-                    "status": "success_chunked",
-                }
-
-            # Optionally upload to File Search
             if file_search_store_name:
                 ingestion_results = self._ingest_into_file_search(
                     store_name=file_search_store_name,
                     video_id=video_id,
                     channel_id=channel_id,
                     video_title=video_title,
-                    transcript=result.get("transcript", {}),
-                    analysis=result.get("analysis", {}),
+                    transcript={"full_text": transcript_text},
+                    analysis={},
                 )
                 if ingestion_results:
                     result["file_search_documents"] = ingestion_results
@@ -607,7 +485,7 @@ class AnalyzeVideoTool(BaseTool):
             return result
 
         except Exception as exc:  # noqa: BLE001
-            logger.exception(f"Error analyzing video {video_url}")
+            logger.exception("Error fetching transcript for %s", video_url)
             return {
                 "error": str(exc),
                 "video_url": video_url,
