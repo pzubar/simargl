@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
+import tempfile
+import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from google import genai
 from google.adk.tools import BaseTool, _automatic_function_calling_util as tool_utils
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
@@ -21,6 +25,55 @@ from memory import get_file_search_service
 
 logger = logging.getLogger(__name__)
 _youtube_service = None
+_genai_client = None
+
+FILE_POLL_INTERVAL_SECONDS = 1.0
+FILE_POLL_TIMEOUT_SECONDS = 120.0
+
+
+def _get_genai_client():
+    """Create or reuse a Gemini client that targets AI Studio (not Vertex)."""
+    global _genai_client  # noqa: PLW0603
+    if _genai_client is None:
+        _genai_client = genai.Client(vertexai=False)
+    return _genai_client
+
+
+def _wait_for_file_active(client: genai.Client, *, name: str) -> str:
+    """Poll a Gemini file until it becomes ACTIVE or times out."""
+    deadline = time.time() + FILE_POLL_TIMEOUT_SECONDS
+    current = client.files.get(name=name)
+    while current.state not in {"ACTIVE", "FAILED"} and time.time() < deadline:
+        time.sleep(FILE_POLL_INTERVAL_SECONDS)
+        current = client.files.get(name=name)
+    if current.state != "ACTIVE":
+        raise RuntimeError(f"File upload did not become ACTIVE (state={current.state})")
+    return current.uri
+
+
+def _upload_text_to_gemini_file(*, text: str, display_name: str) -> str:
+    """Upload text to Gemini Files and return the file URI."""
+    client = _get_genai_client()
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            suffix=".txt",
+            delete=False,
+            encoding="utf-8",
+        ) as tmp:
+            tmp.write(text)
+            tmp.flush()
+            temp_path = tmp.name
+        # Gemini API backend does not support display_name; upload with file only.
+        upload = client.files.upload(file=temp_path)
+        return _wait_for_file_active(client, name=upload.name)
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                logger.debug("Temporary transcript file already cleaned up: %s", temp_path)
 
 
 def _format_rfc3339(dt: datetime) -> str:
@@ -601,10 +654,81 @@ class SearchChannelVideosTool(BaseTool):
             }
 
 
+class UploadTranscriptToGeminiFileInput(BaseModel):
+    video_id: str = Field(..., description="The ID of the YouTube video.")
+    transcript_text: str = Field(..., description="Transcript text to store off-chat.")
+    video_title: Optional[str] = Field(
+        default=None,
+        description="Optional display name for the Gemini file.",
+    )
+
+
+class UploadTranscriptToGeminiFileTool(BaseTool):
+    """Upload transcript text to Gemini Files and return a file reference."""
+
+    NAME = "upload_transcript_to_gemini_file"
+    DESCRIPTION = (
+        "Uploads raw transcript text to Gemini Files and returns a file_uri. "
+        "Use when a transcript string is available and must be kept out of the chat context."
+    )
+
+    def __init__(self) -> None:
+        super().__init__(
+            name=self.NAME,
+            description=self.DESCRIPTION,
+        )
+
+    @property
+    def args_schema(self) -> type[UploadTranscriptToGeminiFileInput]:
+        return UploadTranscriptToGeminiFileInput
+
+    def _get_declaration(self):
+        declaration = tool_utils.build_function_declaration(
+            func=self.args_schema,
+            variant=self._api_variant,
+        )
+        declaration.name = self.NAME
+        return declaration
+
+    async def run_async(self, *, args: dict[str, Any], tool_context) -> Dict[str, Any]:
+        return self(
+            video_id=args["video_id"],
+            transcript_text=args["transcript_text"],
+            video_title=args.get("video_title"),
+        )
+
+    def __call__(
+        self,
+        video_id: str,
+        transcript_text: str,
+        video_title: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        try:
+            display_name = video_title or f"Transcript {video_id}"
+            file_uri = _upload_text_to_gemini_file(
+                text=transcript_text,
+                display_name=display_name,
+            )
+            return {
+                "status": "success",
+                "video_id": video_id,
+                "file_uri": file_uri,
+                "usage_instruction": "Pass this file_uri to the analysis_tool.",
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to upload transcript for %s", video_id)
+            return {
+                "status": "error",
+                "video_id": video_id,
+                "error": f"Failed to upload transcript: {exc}",
+            }
+
+
 __all__ = (
     "GetLatestVideosTool",
     "GetVideoCommentsTool",
     "GetVideoDetailsTool",
     "GetChannelDetailsTool",
     "SearchChannelVideosTool",
+    "UploadTranscriptToGeminiFileTool",
 )

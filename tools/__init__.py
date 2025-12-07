@@ -1,9 +1,6 @@
 """Tool package exposing ADK tools for YouTube research workflows."""
 
-from .analysis_tool import (
-    SentimentAnalysisTool,
-    SummarizeTool,
-)
+from .analysis_tool import FileAnalysisTool
 from .channel_registry_tool import RefreshChannelMetadataTool
 from .file_search_tool import (
     CreateFileSearchStoreTool,
@@ -19,11 +16,11 @@ from .youtube_tool import (
     GetLatestVideosTool,
     GetVideoCommentsTool,
     SearchChannelVideosTool,
+    UploadTranscriptToGeminiFileTool,
 )
 
 __all__ = [
-    "SentimentAnalysisTool",
-    "SummarizeTool",
+    "FileAnalysisTool",
     "CreateFileSearchStoreTool",
     "QueryFileSearchStoreTool",
     "UploadFileSearchDocumentTool",
@@ -34,4 +31,5 @@ __all__ = [
     "GetLatestVideosTool",
     "GetVideoCommentsTool",
     "SearchChannelVideosTool",
+    "UploadTranscriptToGeminiFileTool",
 ]

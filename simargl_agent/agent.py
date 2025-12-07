@@ -2,67 +2,66 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import sys
 from pathlib import Path
+
+from google.adk.agents.llm_agent import LlmAgent
+from google.adk.apps.app import App
+from google.adk.planners import BuiltInPlanner
+from google.adk.runners import Runner
+from google.adk.sessions import InMemorySessionService
+from google.genai.types import ThinkingConfig
 
 # Ensure we can import from the project root
 project_root = Path(__file__).resolve().parent.parent
 if str(project_root) not in sys.path:
     sys.path.insert(0, str(project_root))
 
-from google.adk.agents.llm_agent import LlmAgent
-from google.adk.apps.app import App
-
 from config.settings import ADK_APP_NAME, DEFAULT_GEMINI_MODEL
-from agents.delegation_tools import (
-    DiscoveryDelegationTool,
-    AnalystDelegationTool,
-    HistorianDelegationTool,
-)
-from agents.tools_config import MEMORY_TOOLS
-
+from agents.tools_config import ANALYST_TOOLS, DISCOVERY_TOOLS, MEMORY_TOOLS
 
 MODEL_NAME = DEFAULT_GEMINI_MODEL
 
-SUPERVISOR_INSTRUCTION = """
-You are the Simargl Supervisor Agent. Your role is to route user requests to the appropriate specialized sub-agent.
+current_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-Routing Logic:
-1. New Content / Discovery -> Call `consult_discovery_agent`.
-   - Examples: "Find videos about X", "Check for new videos from Y".
-   
-2. Deep Dive / Analysis -> Call `consult_analyst_agent`.
-   - Examples: "Analyze this video", "Summarize the comments", "What is the sentiment?".
-   - **CONTEXT RULE**: If the user says "this video", "last video", or "4th video", use your conversation history to find the most recent or Nth Video ID. PASS THIS ID explicitly to the Analyst Agent.
-   - **MANDATORY FETCHING**: Do NOT answer "What is this video about?" by just reading the title. You MUST delegate to `consult_discovery_agent` (for quick metadata/description) or `consult_analyst_agent` (for deep dive).
-   - **URL HELP**: When using `consult_analyst_agent`, if you have the ID, try to construct and pass the URL `https://www.youtube.com/watch?v=<ID>` in the query to help the sub-agent.
-   - **MEMORY FIRST**: Before delegating to the Analyst, use `query_file_search_store` to check if analysis already exists. If yes, return that.
-   - **PROACTIVE PROPOSAL**: If the user asks "What is this video about?" and you have no info, delegate to `discovery_agent` to get details, then PROACTIVELY ask the user if they want a deep-dive analysis using the Analyst Agent.
+RESEARCHER_INSTRUCTION = f"""
+Current Date: {current_date}
 
-   
-3. Trends / History / Longitudinal Analysis -> Call `consult_historian_agent`.
-   - Examples: "How has the discourse changed?", "Compare 2023 vs 2024".
-   
-Do NOT attempt to answer these questions yourself if they require tool usage. Delegate them.
-If the user asks a general question or greets you, you can answer directly.
+You are an Expert Media Researcher.
+
+Standard operating procedure:
+1) Identify required videos using youtube_tool options (search, latest, details).
+2) Acquire transcripts using transcript_tool. This tool returns Gemini file references instead of raw text.
+3) Analyze the content by passing those file references to analysis_tool (file_uris + query).
+4) Synthesize the final answer based on the analysis output. Cite which files or videos informed the conclusions.
+
+Constraints:
+- Do not request transcript text in chat; always work with file_uri references.
+- Prefer gemini-flash-latest for all reasoning steps.
+- Keep plans quota-aware and reuse existing file references when available.
 """
 
-_TOOLS = [
-    DiscoveryDelegationTool(),
-    AnalystDelegationTool(),
-    HistorianDelegationTool(),
-]
+planner = BuiltInPlanner(
+    thinking_config=ThinkingConfig(
+        include_thoughts=True,
+    ),
+)
 
 root_agent = LlmAgent(
-    name="simargl_supervisor",
+    name="simargl_research_agent",
     model=MODEL_NAME,
-    instruction=SUPERVISOR_INSTRUCTION,
-    tools=_TOOLS + MEMORY_TOOLS,
+    instruction=RESEARCHER_INSTRUCTION,
+    tools=DISCOVERY_TOOLS + ANALYST_TOOLS + MEMORY_TOOLS,
+    planner=planner,
 )
+
+session_service = InMemorySessionService()
+runner = Runner(agent=root_agent, session_service=session_service, app_name=ADK_APP_NAME)
 
 app = App(
     name=ADK_APP_NAME,
     root_agent=root_agent,
 )
 
-__all__ = ["app", "root_agent"]
+__all__ = ["app", "root_agent", "runner", "session_service"]
