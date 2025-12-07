@@ -40,6 +40,7 @@ Constraints:
 - Do not request transcript text in chat; always work with file_uri references.
 - Prefer gemini-flash-latest for all reasoning steps.
 - Keep plans quota-aware and reuse existing file references when available.
+- For discovery: always provide published_after AND published_before (ISO date or RFC3339) when calling search_channel_videos; use order=viewCount for "most popular"/"top" asks; do not stuff years into the query string. Use returned tags/description to verify topical relevance (e.g., politics).
 """
 
 planner = BuiltInPlanner(

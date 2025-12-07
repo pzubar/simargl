@@ -9,7 +9,7 @@ from tools.file_search_tool import (
 )
 from tools.transcript_tool import AnalyzeVideoTool
 from tools.batch_tool import SubmitBatchJobTool, GetBatchResultsTool
-from tools.youtube_tool import (
+from tools.youtube import (
     GetLatestVideosTool,
     GetVideoCommentsTool,
     SearchChannelVideosTool,

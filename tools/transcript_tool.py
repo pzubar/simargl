@@ -298,13 +298,67 @@ class AnalyzeVideoTool(BaseTool):
             f.write(text)
         return artifact_file
 
-    def _get_video_data_via_transcript_api(self, video_id: str) -> VideoData:
-        transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
-        manual_transcript = next((t for t in transcripts if not getattr(t, "is_generated", False)), None)
-        if not manual_transcript:
-            raise NoTranscriptFound(video_id)
+    def _infer_preferred_languages(self, transcripts, channel_id: Optional[str]) -> List[str]:
+        """Infer preferred language order: channel default (if known) then manual transcript languages."""
+        preferred: List[str] = []
+        # Try registry-derived default language if available
+        if channel_id:
+            try:
+                from channel_registry import get_channel_registry
 
-        raw_segments = manual_transcript.fetch()
+                record = get_channel_registry().get(channel_id)
+                if record and isinstance(getattr(record, "metadata", None), dict):
+                    snapshot = record.metadata.get("snapshot", {}) if isinstance(record.metadata, dict) else {}
+                    snippet = snapshot.get("snippet", {}) if isinstance(snapshot, dict) else {}
+                    default_lang = snippet.get("defaultLanguage")
+                    if default_lang:
+                        preferred.append(default_lang)
+            except Exception:
+                # Non-fatal: fall back to transcript-provided languages
+                pass
+
+        # Add manually created transcript language codes in order of appearance
+        for t in transcripts:
+            lang = getattr(t, "language_code", None)
+            if lang and not getattr(t, "is_generated", False):
+                preferred.append(lang)
+
+        # Dedupe while preserving order
+        seen = set()
+        ordered = []
+        for lang in preferred:
+            if lang and lang not in seen:
+                seen.add(lang)
+                ordered.append(lang)
+        return ordered
+
+    def _get_video_data_via_transcript_api(self, video_id: str, channel_id: Optional[str]) -> VideoData:
+        ytt_api = YouTubeTranscriptApi()
+        transcripts = ytt_api.list(video_id)
+
+        preferred_languages = self._infer_preferred_languages(transcripts, channel_id)
+        manual_transcript = None
+
+        # Prefer manually created transcript in preferred language order
+        try:
+            if preferred_languages:
+                manual_transcript = transcripts.find_manually_created_transcript(preferred_languages)
+        except Exception:
+            manual_transcript = None
+
+        # Fallback: any manually created transcript
+        if not manual_transcript:
+            manual_transcript = next((t for t in transcripts if not getattr(t, "is_generated", False)), None)
+
+        if not manual_transcript:
+            raise NoTranscriptFound(video_id, preferred_languages or [], transcripts)
+
+        fetched_transcript = manual_transcript.fetch()
+        raw_segments = (
+            fetched_transcript.to_raw_data()
+            if hasattr(fetched_transcript, "to_raw_data")
+            else fetched_transcript
+        )
         segments: List[TranscriptSegment] = []
         for item in raw_segments:
             start = float(item.get("start", 0))
@@ -370,12 +424,12 @@ class AnalyzeVideoTool(BaseTool):
         )
         return data
 
-    def get_video_data(self, video_id: str) -> VideoData:
+    def get_video_data(self, video_id: str, channel_id: Optional[str] = None) -> VideoData:
         """
         Preferred flow: manual YouTube transcript via API. Fallback: Gemini video understanding.
         """
         try:
-            return self._get_video_data_via_transcript_api(video_id)
+            return self._get_video_data_via_transcript_api(video_id, channel_id)
         except (TranscriptsDisabled, NoTranscriptFound):
             logger.info("Manual transcript unavailable for %s; falling back to Gemini.", video_id)
             return self._get_video_data_via_gemini(video_id)
@@ -490,7 +544,7 @@ class AnalyzeVideoTool(BaseTool):
                 video_url = f"https://www.youtube.com/watch?v={video_id}"
 
             logger.info("Fetching transcript for %s via hybrid flow", video_id)
-            video_data = self.get_video_data(video_id)
+            video_data = self.get_video_data(video_id, channel_id=channel_id)
             transcript_text = video_data.content
 
             file_uri = self._upload_transcript_text(

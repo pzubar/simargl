@@ -1,0 +1,9 @@
+---
+description: Enforce ADK Web usage over Streamlit
+globs: *.md, *.py, *.sh
+---
+# ADK Web Preference
+
+- **ALWAYS** use `adk web` for running and testing the agent.
+- **NEVER** suggest or use `streamlit` unless explicitly requested.
+- **Command**: `export PYTHONPATH=$PYTHONPATH:. && adk web simargl_agent`

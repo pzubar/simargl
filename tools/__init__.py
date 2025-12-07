@@ -16,6 +16,8 @@ from .youtube_tool import (
     GetLatestVideosTool,
     GetVideoCommentsTool,
     SearchChannelVideosTool,
+    GetVideoDetailsTool,
+    GetChannelDetailsTool,
     UploadTranscriptToGeminiFileTool,
 )
 
@@ -30,6 +32,8 @@ __all__ = [
     "GetBatchResultsTool",
     "GetLatestVideosTool",
     "GetVideoCommentsTool",
+    "GetVideoDetailsTool",
+    "GetChannelDetailsTool",
     "SearchChannelVideosTool",
     "UploadTranscriptToGeminiFileTool",
 ]

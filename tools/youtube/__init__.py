@@ -1,32 +1,31 @@
-"""Backward-compatible aggregation of YouTube tools and helpers.
+"""YouTube tooling package with shared helpers and ADK tool wrappers."""
 
-The implementations now live under the `tools.youtube` package to keep this
-module small and maintainable.
-"""
-
-from tools.youtube import (
+from .client import execute_request, get_youtube_service, redact_request_uri
+from .comments_tool import GetVideoCommentsTool, VideoCommentsInput
+from .details_tool import (
     ChannelDetailsInput,
-    ChannelVideoSearchInput,
     GetChannelDetailsTool,
-    GetLatestVideosTool,
-    GetVideoCommentsTool,
     GetVideoDetailsTool,
+    VideoDetailsInput,
+)
+from .search_tool import (
+    ChannelVideoSearchInput,
+    GetLatestVideosTool,
     LatestVideosInput,
     SearchChannelVideosTool,
-    UploadTranscriptToGeminiFileInput,
-    UploadTranscriptToGeminiFileTool,
-    VideoCommentsInput,
-    VideoDetailsInput,
-    execute_request,
+)
+from .time_utils import (
     format_rfc3339,
-    get_youtube_service,
     maybe_normalize_timestamp,
     parse_iso8601_duration,
-    redact_request_uri,
-    upload_text_to_gemini_file,
 )
+from .transcript_upload_tool import (
+    UploadTranscriptToGeminiFileInput,
+    UploadTranscriptToGeminiFileTool,
+)
+from .storage import upload_text_to_gemini_file
 
-__all__ = (
+__all__ = [
     "execute_request",
     "get_youtube_service",
     "redact_request_uri",
@@ -46,4 +45,4 @@ __all__ = (
     "SearchChannelVideosTool",
     "UploadTranscriptToGeminiFileInput",
     "UploadTranscriptToGeminiFileTool",
-)
+]

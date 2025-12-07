@@ -1,5 +1,5 @@
 # Core Agent Framework
-google-adk
+google-adk==1.20.0
 
 # Google Cloud & APIs
 google-genai
