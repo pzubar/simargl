@@ -68,7 +68,10 @@ class ManageChannelInput(BaseModel):
     )
     owner: Optional[str] = Field(default=None, description="Owner / persona to set (manual field).")
     notes: Optional[str] = Field(default=None, description="Analyst notes to set (manual field).")
-    aliases: Optional[List[str]] = Field(default=None, description="Aliases to merge (manual field).")
+    aliases: List[str] = Field(
+        default=[],
+        description="Aliases to merge (manual field). Provide an empty list to skip.",
+    )
     force: bool = Field(default=False, description="Force refresh when action is refresh.")
 
 
@@ -111,6 +114,9 @@ class ManageChannelRegistryTool(BaseTool):
     ) -> Dict[str, Any]:
         if action in {"add", "update", "refresh"} and not identifier:
             raise ValueError("identifier is required for add/update/refresh actions")
+
+        # Normalize aliases to a list for downstream logic and schema simplicity.
+        aliases = aliases or []
 
         if action == "view":
             summary = self._manager.view_summary()
