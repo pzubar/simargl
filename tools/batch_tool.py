@@ -71,7 +71,7 @@ class SubmitBatchJobTool(BaseTool):
     ) -> Dict[str, Any]:
         """Submits a batch job."""
         try:
-            video_data = []
+            videos_payload: List[Dict[str, Any]] = []
             failed_videos = []
 
             # 1. Fetch transcripts for each video
@@ -80,21 +80,10 @@ class SubmitBatchJobTool(BaseTool):
             # In a production system, this should be parallelized or also handled via a queue.
             for vid in video_ids:
                 try:
-                    # Construct a dummy URL for the tool (it extracts ID from it, but we have ID)
-                    # Actually AnalyzeVideoTool._generate_transcript takes video_url.
-                    # We construct a standard URL.
-                    video_url = f"https://www.youtube.com/watch?v={vid}"
+                    video_data = self._transcript_tool.get_video_data(vid)
+                    full_prompt = f"{instructions}\n\nCONTEXT:\n{video_data.content}"
                     
-                    # We use the "cheap" transcript model defined in the tool
-                    transcript_obj = await self._transcript_tool._generate_transcript(
-                        video_url=video_url,
-                        model_name="gemini-2.5-flash" # Use default cheap model
-                    )
-                    
-                    transcript_text = transcript_obj.full_text
-                    full_prompt = f"{instructions}\n\nCONTEXT:\n{transcript_text}"
-                    
-                    video_data.append({
+                    videos_payload.append({
                         "video_id": vid,
                         "prompt": full_prompt
                     })
@@ -103,11 +92,11 @@ class SubmitBatchJobTool(BaseTool):
                     logger.error(f"Failed to fetch transcript for {vid}: {e}")
                     failed_videos.append(vid)
 
-            if not video_data:
+            if not videos_payload:
                 return {"error": "Failed to fetch transcripts for any of the provided videos."}
 
             # 2. Submit Batch Job
-            batch_id = self._batch_service.create_analysis_job(video_data)
+            batch_id = self._batch_service.create_analysis_job(videos_payload)
             
             result_msg = f"Batch Job submitted successfully. Batch ID: {batch_id}. "
             if failed_videos:
@@ -119,7 +108,7 @@ class SubmitBatchJobTool(BaseTool):
                 "batch_id": batch_id,
                 "status": "submitted",
                 "message": result_msg,
-                "video_count": len(video_data),
+                "video_count": len(videos_payload),
                 "store_name": file_search_store_name # Pass this through if needed for tracking
             }
 

@@ -14,6 +14,7 @@ from tools.youtube_tool import get_youtube_service
 
 from . import get_channel_registry
 from .models import ChannelRecord
+from .utils import dedupe_aliases, normalize_handle
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ class ChannelRefreshService:
         record.channel_id = payload.get("id") or record.channel_id
         record.title = snippet.get("title") or record.title
         record.description = snippet.get("description") or record.description
-        record.handle = snippet.get("customUrl") or record.handle
+        record.handle = normalize_handle(snippet.get("customUrl") or record.handle)
         record.metadata.subscriber_count = self._safe_int(statistics.get("subscriberCount"))
         record.metadata.video_count = self._safe_int(statistics.get("videoCount"))
         record.metadata.view_count = self._safe_int(statistics.get("viewCount"))
@@ -93,14 +94,8 @@ class ChannelRefreshService:
                 "title": snippet.get("title"),
             },
         }
-        alias_candidates = [record.title, record.handle]
-        record.aliases = sorted(
-            {
-                alias
-                for alias in (record.aliases + [candidate for candidate in alias_candidates if candidate])
-                if alias
-            }
-        )
+        alias_candidates = [record.title, record.handle, record.channel_id]
+        record.aliases = dedupe_aliases(record.aliases + [candidate for candidate in alias_candidates if candidate])
         record.updated_at = datetime.utcnow()
 
     def _write_memory_snapshot(self, record: ChannelRecord) -> None:

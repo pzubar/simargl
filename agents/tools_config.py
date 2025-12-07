@@ -1,7 +1,7 @@
 """Tool configuration for Simargl agents."""
 
 from tools.analysis_tool import FileAnalysisTool
-from tools.channel_registry_tool import RefreshChannelMetadataTool
+from tools.channel_registry_tool import ManageChannelRegistryTool, RefreshChannelMetadataTool
 from tools.file_search_tool import (
     CreateFileSearchStoreTool,
     QueryFileSearchStoreTool,
@@ -21,6 +21,7 @@ from tools.youtube_tool import (
 DISCOVERY_TOOLS = [
     SearchChannelVideosTool(),
     GetLatestVideosTool(),
+    ManageChannelRegistryTool(),
     RefreshChannelMetadataTool(),
     GetVideoDetailsTool(),
     GetChannelDetailsTool(),

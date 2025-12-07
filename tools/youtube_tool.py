@@ -213,8 +213,8 @@ class ChannelVideoSearchInput(BaseModel):
         description="Number of videos to fetch (default 5).",
     )
     order: str = Field(
-        "relevance",
-        description="Order of returned resources. Acceptable values are: date, rating, relevance, title, videoCount, viewCount. Defaults to relevance.",
+        "viewCount",
+        description="Order of returned resources. Acceptable values are: date, rating, relevance, title, videoCount, viewCount. Defaults to viewCount for popularity queries.",
     )
 
 
@@ -598,7 +598,7 @@ class SearchChannelVideosTool(BaseTool):
             published_after=args.get("published_after"),
             published_before=args.get("published_before"),
             max_results=args.get("max_results", YOUTUBE_DEFAULT_MAX_RESULTS),
-            order=args.get("order", "relevance"),
+            order=args.get("order", "viewCount"),
         )
     def __call__(
         self,
@@ -607,7 +607,7 @@ class SearchChannelVideosTool(BaseTool):
         published_after: Optional[str] = None,
         published_before: Optional[str] = None,
         max_results: int = YOUTUBE_DEFAULT_MAX_RESULTS,
-        order: str = "relevance",
+        order: str = "viewCount",
     ) -> Dict[str, Any]:
         try:
             max_results = max(1, min(50, max_results))
@@ -630,11 +630,72 @@ class SearchChannelVideosTool(BaseTool):
             request = service.search().list(**params)
             response = request.execute()
             items: List[Dict[str, Any]] = response.get("items", [])
+            video_ids: List[str] = [
+                item.get("id", {}).get("videoId")
+                for item in items
+                if item.get("id", {}).get("videoId")
+            ]
+
+            enriched_items: List[Dict[str, Any]] = []
+            details_map: Dict[str, Dict[str, Any]] = {}
+
+            if video_ids:
+                try:
+                    details_response = (
+                        service.videos()
+                        .list(
+                            part="snippet,statistics,contentDetails",
+                            id=",".join(video_ids),
+                        )
+                        .execute()
+                    )
+                    details_map = {
+                        item["id"]: item
+                        for item in details_response.get("items", [])
+                        if item.get("id")
+                    }
+                except HttpError:
+                    logger.exception(
+                        "YouTube API error when fetching video details for %s", channel_id
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception(
+                        "Unexpected error when fetching video details for %s", channel_id
+                    )
+
+            for item in items:
+                video_id = item.get("id", {}).get("videoId")
+                detail = details_map.get(video_id, {})
+                merged = dict(item)
+                merged["video_id"] = video_id
+                if detail:
+                    merged["statistics"] = detail.get("statistics", {})
+                    merged["contentDetails"] = detail.get("contentDetails", {})
+                    # Prefer detail snippet when available to carry thumbnails and metadata.
+                    if detail.get("snippet"):
+                        merged["snippet"] = detail.get("snippet")
+
+                view_count_value = (
+                    merged.get("statistics", {}).get("viewCount")
+                    if isinstance(merged.get("statistics"), dict)
+                    else None
+                )
+                try:
+                    view_count = int(view_count_value) if view_count_value is not None else None
+                except (TypeError, ValueError):
+                    view_count = None
+                merged["view_count"] = view_count
+                enriched_items.append(merged)
+
+            if order == "viewCount":
+                enriched_items.sort(key=lambda item: item.get("view_count") or 0, reverse=True)
+
             return {
                 "channel_id": channel_id,
                 "published_after": params.get("publishedAfter"),
                 "published_before": params.get("publishedBefore"),
-                "videos": items,
+                "order": order,
+                "videos": enriched_items,
             }
         except HttpError as http_err:
             logger.exception(

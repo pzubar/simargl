@@ -67,8 +67,7 @@ def sidebar_channel_manager() -> List[str]:
     for record in records:
         label = record.title or record.handle or record.channel_id
         with st.sidebar.expander(label, expanded=False):
-            handle = f"@{record.handle}" if record.handle else "—"
-            st.markdown(f"**Handle:** {handle}")
+            st.markdown(f"**Handle:** {record.handle or '—'}")
             st.markdown(f"**Owner:** {record.owner or '—'}")
             st.markdown(
                 f"**Subscribers:** {record.metadata.subscriber_count:,}"

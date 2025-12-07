@@ -74,5 +74,21 @@
     },
     "created_at": "2025-11-17T20:34:02.706541",
     "updated_at": "2025-11-19T08:54:56.147255"
+  },
+  {
+    "channel_id": "UCV0ZrOPCKzqx36rRiPHkwFg",
+    "handle": "@portnikov",
+    "custom_url": null,
+    "title": "Віталій Портников",
+    "description": "Це - канал авторських коментарів Віталія Портникова. Говоримо з вами про головні події в Україні і світі, разом думаємо про майбутнє, дискутуємо й шукаємо вихід з ситуацій, які тільки здаються безвихідними.",
+    "owner": null,
+    "notes": null,
+    "tags": [],
+    "aliases": [
+      "@portnikov",
+      "UCV0ZrOPCKzqx36rRiPHkwFg",
+      "Віталій Портников",
+      "Vitaly Portnikov"
+    ]
   }
 ]

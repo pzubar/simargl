@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import tempfile
 import time
 from pathlib import Path
@@ -14,14 +15,20 @@ from typing import Any, Dict, List, Optional
 from google import genai
 from google.genai import types
 from google.adk.tools import BaseTool, _automatic_function_calling_util as tool_utils
+from googleapiclient.discovery import build  # Import build
 from pydantic import BaseModel, Field
+from simargl_agent.schemas import TranscriptSegment, VideoData
+from youtube_transcript_api import (
+    NoTranscriptFound,
+    TranscriptsDisabled,
+    YouTubeTranscriptApi,
+)
 
 from config.settings import (
     BASE_DIR,
     DEFAULT_GEMINI_MODEL,
-    YOUTUBE_API_KEY, # Import API Key
+    YOUTUBE_API_KEY,  # Import API Key
 )
-from googleapiclient.discovery import build # Import build
 from memory import get_file_search_service
 
 
@@ -32,29 +39,6 @@ ARTIFACTS_BASE_DIR = BASE_DIR / "data" / "video_artifacts"
 
 FILE_POLL_INTERVAL_SECONDS = 1.0
 FILE_POLL_TIMEOUT_SECONDS = 120.0
-
-
-class TranscriptSegment(BaseModel):
-    """A single segment of the transcript with timestamp."""
-
-    text: str = Field(description="The transcript text for this segment.")
-    start_time: float = Field(description="Start time in seconds.")
-    end_time: Optional[float] = Field(
-        default=None, description="End time in seconds (if available)."
-    )
-
-
-class VideoTranscript(BaseModel):
-    """Structured transcript output from Gemini API."""
-
-    full_text: str = Field(description="The complete transcript text.")
-    segments: List[TranscriptSegment] = Field(
-        default_factory=list,
-        description="List of transcript segments with timestamps.",
-    )
-    language: Optional[str] = Field(
-        default=None, description="Detected language of the transcript."
-    )
 
 
 class EmotionAnalysis(BaseModel):
@@ -272,60 +256,129 @@ class AnalyzeVideoTool(BaseTool):
                 except OSError:
                     logger.debug("Temporary transcript file already removed: %s", temp_path)
 
-    async def _generate_transcript(
-        self, video_url: str, model_name: str
-    ) -> VideoTranscript:
-        """
-        Generate transcript using cheap model without video data.
-        Only sends YouTube URL + text prompt to save tokens.
-        """
-        client = self._get_client()
-        prompt = (
-            "Transcribe the audio from this YouTube video. "
-            "Provide a complete transcript with timestamps for each segment. "
-            "Return the transcript in a structured format with segments containing text, start_time, and end_time."
-        )
+    def _format_timestamp(self, seconds: float) -> str:
+        minutes = int(seconds // 60)
+        secs = int(round(seconds % 60))
+        return f"{minutes:02d}:{secs:02d}"
 
-        try:
-            # For transcript, we only send the URL (no video data) to save tokens
-            # Use asyncio.to_thread to run synchronous generate_content in async context
-            response = await asyncio.to_thread(
-                client.models.generate_content,
-                model=model_name,
-                contents=[
-                    types.Content(
-                        parts=[
-                            types.Part(
-                                file_data=types.FileData(file_uri=video_url)
-                            ),
-                            types.Part(text=prompt),
-                        ]
-                    )
-                ],
-                config=types.GenerateContentConfig(
-                    response_mime_type="text/plain",
-                    response_schema=VideoTranscript.model_json_schema(),
-                ),
+    def _segments_to_markdown(self, segments: List[TranscriptSegment]) -> str:
+        lines = [
+            f"[{self._format_timestamp(seg.start_time)}] {seg.text.strip()}"
+            for seg in segments
+            if seg.text
+        ]
+        return "\n".join(lines).strip()
+
+    def _parse_markdown_segments(self, text: str) -> List[TranscriptSegment]:
+        pattern = re.compile(r"\[(\d{1,2}):(\d{2})\]\s*(.+)")
+        parsed: List[TranscriptSegment] = []
+        for line in text.splitlines():
+            match = pattern.match(line.strip())
+            if not match:
+                continue
+            minutes, seconds, content = match.groups()
+            start = int(minutes) * 60 + int(seconds)
+            parsed.append(
+                TranscriptSegment(
+                    text=content.strip(),
+                    start_time=float(start),
+                    end_time=None,  # filled after loop
+                )
             )
 
-            # Parse structured response
-            if hasattr(response, "text"):
-                # Try to parse JSON from text response
-                try:
-                    parsed = json.loads(response.text)
-                    return VideoTranscript(**parsed)
-                except (json.JSONDecodeError, ValueError):
-                    # Fallback: create transcript from text
-                    return VideoTranscript(
-                        full_text=response.text,
-                        segments=[],
-                    )
-            else:
-                raise ValueError("No text in response")
+        for idx, seg in enumerate(parsed):
+            if idx + 1 < len(parsed):
+                seg.end_time = parsed[idx + 1].start_time
+        return parsed
 
-        except Exception as e:
-            logger.error(f"Error generating transcript: {e}")
-            raise
+    def _save_text_artifact(self, video_id: str, artifact_type: str, text: str) -> Path:
+        artifacts_dir = self._get_artifacts_dir(video_id)
+        artifact_file = artifacts_dir / f"{artifact_type}.txt"
+        with artifact_file.open("w", encoding="utf-8") as f:
+            f.write(text)
+        return artifact_file
+
+    def _get_video_data_via_transcript_api(self, video_id: str) -> VideoData:
+        transcripts = YouTubeTranscriptApi.list_transcripts(video_id)
+        manual_transcript = next((t for t in transcripts if not getattr(t, "is_generated", False)), None)
+        if not manual_transcript:
+            raise NoTranscriptFound(video_id)
+
+        raw_segments = manual_transcript.fetch()
+        segments: List[TranscriptSegment] = []
+        for item in raw_segments:
+            start = float(item.get("start", 0))
+            duration = float(item.get("duration", 0))
+            segments.append(
+                TranscriptSegment(
+                    text=item.get("text", ""),
+                    start_time=start,
+                    end_time=start + duration if duration else None,
+                )
+            )
+
+        markdown = self._segments_to_markdown(segments)
+        data = VideoData(
+            video_id=video_id,
+            source_type="transcript_api",
+            content=markdown,
+            segments=segments,
+        )
+
+        self._save_artifact(video_id, "transcript_api_raw", {"segments": raw_segments})
+        self._save_text_artifact(video_id, "transcript_markdown", markdown)
+        return data
+
+    def _get_video_data_via_gemini(self, video_id: str) -> VideoData:
+        client = self._get_client()
+        video_url = f"https://www.youtube.com/watch?v={video_id}"
+        prompt = (
+            "Watch this video. Generate a detailed, timestamped transcript of the spoken content. "
+            "Format the output strictly as markdown with timestamps like [MM:SS] Text..."
+        )
+
+        response = client.models.generate_content(
+            model="gemini-flash-latest",
+            contents=[
+                types.Content(
+                    parts=[
+                        types.Part(file_data=types.FileData(file_uri=video_url)),
+                        types.Part(text=prompt),
+                    ]
+                )
+            ],
+            config=types.GenerateContentConfig(response_mime_type="text/plain"),
+        )
+
+        text = response.text.strip() if hasattr(response, "text") and response.text else ""
+        if not text:
+            raise RuntimeError("Gemini video understanding returned empty text.")
+
+        segments = self._parse_markdown_segments(text)
+        data = VideoData(
+            video_id=video_id,
+            source_type="gemini_video_understanding",
+            content=text,
+            segments=segments,
+        )
+
+        self._save_text_artifact(video_id, "gemini_video_understanding", text)
+        self._save_artifact(
+            video_id,
+            "gemini_video_understanding_segments",
+            {"segments": [seg.model_dump() for seg in segments]},
+        )
+        return data
+
+    def get_video_data(self, video_id: str) -> VideoData:
+        """
+        Preferred flow: manual YouTube transcript via API. Fallback: Gemini video understanding.
+        """
+        try:
+            return self._get_video_data_via_transcript_api(video_id)
+        except (TranscriptsDisabled, NoTranscriptFound):
+            logger.info("Manual transcript unavailable for %s; falling back to Gemini.", video_id)
+            return self._get_video_data_via_gemini(video_id)
 
     async def _generate_analysis(
         self, video_url: str, model_name: str, start_time: Optional[int] = None, end_time: Optional[int] = None
@@ -436,25 +489,9 @@ class AnalyzeVideoTool(BaseTool):
             if not video_url:
                 video_url = f"https://www.youtube.com/watch?v={video_id}"
 
-            logger.info("Generating transcript for %s using model %s", video_id, transcript_model)
-            transcript = await self._generate_transcript(video_url, transcript_model)
-
-            transcript_payload = transcript.model_dump()
-            transcript_text = transcript_payload.get("full_text") or ""
-            if not transcript_text and transcript_payload.get("segments"):
-                transcript_text = "\n".join(
-                    segment.get("text", "") for segment in transcript_payload.get("segments", [])
-                )
-
-            if not transcript_text:
-                return {
-                    "status": "error",
-                    "video_id": video_id,
-                    "error": "Transcript text was empty after generation.",
-                }
-
-            # Persist transcript locally for debugging/auditing.
-            self._save_artifact(video_id, "transcript", transcript_payload)
+            logger.info("Fetching transcript for %s via hybrid flow", video_id)
+            video_data = self.get_video_data(video_id)
+            transcript_text = video_data.content
 
             file_uri = self._upload_transcript_text(
                 transcript_text=transcript_text,
@@ -467,6 +504,7 @@ class AnalyzeVideoTool(BaseTool):
                 "video_id": video_id,
                 "video_url": video_url,
                 "file_uri": file_uri,
+                "source_type": video_data.source_type,
                 "usage_instruction": "Pass this file_uri to the analysis_tool.",
             }
 
