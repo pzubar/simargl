@@ -1,6 +1,11 @@
 """YouTube tooling package with shared helpers and ADK tool wrappers."""
 
-from .client import execute_request, get_youtube_service, redact_request_uri
+from .client import (
+    execute_request,
+    get_youtube_service,
+    redact_request_uri,
+    resolve_uploads_playlist_id,
+)
 from .comments_tool import GetVideoCommentsTool, VideoCommentsInput
 from .details_tool import (
     ChannelDetailsInput,
@@ -8,6 +13,11 @@ from .details_tool import (
     GetVideoDetailsTool,
     VideoDetailsInput,
 )
+from .enrich_playlist_videos_tool import (
+    EnrichPlaylistVideosInput,
+    EnrichPlaylistVideosTool,
+)
+from .list_uploads_tool import PlaylistVideosInput, ListChannelUploadsTool
 from .search_tool import (
     ChannelVideoSearchInput,
     GetLatestVideosTool,
@@ -29,6 +39,7 @@ __all__ = [
     "execute_request",
     "get_youtube_service",
     "redact_request_uri",
+    "resolve_uploads_playlist_id",
     "format_rfc3339",
     "maybe_normalize_timestamp",
     "parse_iso8601_duration",
@@ -42,7 +53,11 @@ __all__ = [
     "VideoDetailsInput",
     "GetVideoDetailsTool",
     "ChannelVideoSearchInput",
+    "PlaylistVideosInput",
+    "EnrichPlaylistVideosInput",
     "SearchChannelVideosTool",
+    "ListChannelUploadsTool",
+    "EnrichPlaylistVideosTool",
     "UploadTranscriptToGeminiFileInput",
     "UploadTranscriptToGeminiFileTool",
 ]

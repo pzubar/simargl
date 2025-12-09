@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 
 from google.adk.tools import BaseTool, _automatic_function_calling_util as tool_utils
 from googleapiclient.errors import HttpError
@@ -17,10 +18,124 @@ from tools.youtube.client import (
     get_youtube_service,
     redact_request_uri,
     resolve_channel_identifier,
+    resolve_uploads_playlist_id,
 )
 from tools.youtube.time_utils import maybe_normalize_timestamp, parse_iso8601_duration
 
 logger = logging.getLogger(__name__)
+
+
+def _parse_rfc3339(timestamp: Optional[str]) -> Optional[datetime]:
+    if not timestamp:
+        return None
+    try:
+        cleaned = timestamp.replace("Z", "+00:00")
+        return datetime.fromisoformat(cleaned).astimezone(timezone.utc)
+    except ValueError:
+        logger.warning("Failed to parse timestamp %s", timestamp)
+        return None
+
+
+def _collect_playlist_items(
+    service,
+    playlist_id: str,
+    *,
+    max_results: int,
+    label: str,
+) -> List[Dict[str, Any]]:
+    """Paginate playlistItems until we reach max_results or exhaust the feed."""
+    collected: List[Dict[str, Any]] = []
+    page_token: Optional[str] = None
+
+    while len(collected) < max_results:
+        page_size = min(50, max_results - len(collected))
+        request = service.playlistItems().list(
+            part="snippet,contentDetails",
+            playlistId=playlist_id,
+            maxResults=page_size,
+            pageToken=page_token,
+        )
+        sanitized_uri = redact_request_uri(request)
+        if sanitized_uri:
+            logger.info("YouTube API request (%s): %s", label, sanitized_uri)
+        response = execute_request(request, retries=2, label=label)
+        items = response.get("items", [])
+        collected.extend(items)
+        page_token = response.get("nextPageToken")
+        if not page_token:
+            break
+
+    return collected[:max_results]
+
+
+def _fetch_video_details_map(service, video_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    if not video_ids:
+        return {}
+    request = service.videos().list(
+        part="snippet,statistics,contentDetails,topicDetails",
+        id=",".join(video_ids),
+    )
+    sanitized_details_uri = redact_request_uri(request)
+    if sanitized_details_uri:
+        logger.info("YouTube API request (video details batch): %s", sanitized_details_uri)
+    details_response = execute_request(request, retries=2, label="video details batch")
+    return {
+        item["id"]: item
+        for item in details_response.get("items", [])
+        if item.get("id")
+    }
+
+
+def _enrich_with_details(
+    items: List[Dict[str, Any]],
+    details_map: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    enriched_items: List[Dict[str, Any]] = []
+    for item in items:
+        content_details = item.get("contentDetails") or {}
+        snippet = item.get("snippet") or {}
+        video_id = content_details.get("videoId") or item.get("id", {}).get("videoId")
+        detail = details_map.get(video_id, {})
+
+        merged = dict(item)
+        merged["video_id"] = video_id
+        if detail:
+            merged["statistics"] = detail.get("statistics", {})
+            merged["contentDetails"] = detail.get("contentDetails", {})
+            merged["topicDetails"] = detail.get("topicDetails", {})
+            if detail.get("snippet"):
+                merged["snippet"] = detail.get("snippet")
+
+        view_count_value = (
+            merged.get("statistics", {}).get("viewCount")
+            if isinstance(merged.get("statistics"), dict)
+            else None
+        )
+        try:
+            view_count = int(view_count_value) if view_count_value is not None else None
+        except (TypeError, ValueError):
+            view_count = None
+        merged["view_count"] = view_count
+
+        merged_snippet = merged.get("snippet") or snippet
+        merged["publish_date"] = merged_snippet.get("publishedAt")
+        tags = merged_snippet.get("tags") if isinstance(merged_snippet, dict) else None
+        merged["tags"] = tags or []
+
+        duration_iso = (
+            merged.get("contentDetails", {}).get("duration")
+            if isinstance(merged.get("contentDetails"), dict)
+            else None
+        )
+        if duration_iso:
+            try:
+                merged["duration_seconds"] = parse_iso8601_duration(duration_iso)
+                merged["duration"] = duration_iso
+            except ValueError:
+                logger.warning("Failed to parse duration for video %s", video_id)
+
+        enriched_items.append(merged)
+    return enriched_items
 
 
 class LatestVideosInput(BaseModel):
@@ -112,18 +227,26 @@ class GetLatestVideosTool(BaseTool):
                 }
             max_results = max(1, min(50, max_results))
             service = get_youtube_service()
-            request = service.search().list(
-                part="snippet",
-                channelId=resolved_channel_id,
-                maxResults=max_results,
-                order="date",
-                type="video",
+            playlist_id = resolve_uploads_playlist_id(resolved_channel_id, service=service)
+            if not playlist_id:
+                return {
+                    "channel_id": resolved_channel_id,
+                    "error": "Could not resolve uploads playlist for channel.",
+                }
+
+            items: List[Dict[str, Any]] = _collect_playlist_items(
+                service,
+                playlist_id,
+                max_results=max_results,
+                label="latest videos",
             )
-            sanitized_uri = redact_request_uri(request)
-            if sanitized_uri:
-                logger.info("YouTube API request (latest videos): %s", sanitized_uri)
-            response = execute_request(request, retries=2, label="latest videos")
-            items: List[Dict[str, Any]] = response.get("items", [])
+            video_ids: List[str] = [
+                item.get("contentDetails", {}).get("videoId")
+                for item in items
+                if item.get("contentDetails", {}).get("videoId")
+            ]
+            details_map = _fetch_video_details_map(service, video_ids)
+            items = _enrich_with_details(items, details_map)
             return {
                 "channel_id": resolved_channel_id,
                 "videos": items,
@@ -205,10 +328,13 @@ class SearchChannelVideosTool(BaseTool):
                 }
 
             max_results = max(1, min(50, max_results))
+            normalized_after = maybe_normalize_timestamp(published_after)
+            normalized_before = maybe_normalize_timestamp(published_before)
+            service = get_youtube_service()
+
             search_max_results = (
                 max_results if order != "viewCount" else min(50, max_results + 5)
             )
-            service = get_youtube_service()
             params: Dict[str, Any] = {
                 "part": "snippet",
                 "channelId": resolved_channel_id,
@@ -217,8 +343,6 @@ class SearchChannelVideosTool(BaseTool):
                 "order": order,
                 "type": "video",
             }
-            normalized_after = maybe_normalize_timestamp(published_after)
-            normalized_before = maybe_normalize_timestamp(published_before)
             if normalized_after:
                 params["publishedAfter"] = normalized_after
             if normalized_before:
@@ -231,35 +355,17 @@ class SearchChannelVideosTool(BaseTool):
                 logger.info("YouTube API request (search): %s", sanitized_uri)
             response = execute_request(request, retries=2, label="search")
             items: List[Dict[str, Any]] = response.get("items", [])
-            video_ids: List[str] = [
+            video_ids = [
                 item.get("id", {}).get("videoId")
                 for item in items
                 if item.get("id", {}).get("videoId")
             ]
 
-            enriched_items: List[Dict[str, Any]] = []
             details_map: Dict[str, Dict[str, Any]] = {}
 
             if video_ids:
                 try:
-                    details_request = service.videos().list(
-                        part="snippet,statistics,contentDetails,topicDetails",
-                        id=",".join(video_ids),
-                    )
-                    sanitized_details_uri = redact_request_uri(details_request)
-                    if sanitized_details_uri:
-                        logger.info(
-                            "YouTube API request (video details batch): %s",
-                            sanitized_details_uri,
-                        )
-                    details_response = execute_request(
-                        details_request, retries=2, label="video details batch"
-                    )
-                    details_map = {
-                        item["id"]: item
-                        for item in details_response.get("items", [])
-                        if item.get("id")
-                    }
+                    details_map = _fetch_video_details_map(service, video_ids)
                 except HttpError:
                     logger.exception(
                         "YouTube API error when fetching video details for %s", channel_id
@@ -269,47 +375,7 @@ class SearchChannelVideosTool(BaseTool):
                         "Unexpected error when fetching video details for %s", channel_id
                     )
 
-            for item in items:
-                video_id = item.get("id", {}).get("videoId")
-                detail = details_map.get(video_id, {})
-                merged = dict(item)
-                merged["video_id"] = video_id
-                if detail:
-                    merged["statistics"] = detail.get("statistics", {})
-                    merged["contentDetails"] = detail.get("contentDetails", {})
-                    merged["topicDetails"] = detail.get("topicDetails", {})
-                    if detail.get("snippet"):
-                        merged["snippet"] = detail.get("snippet")
-
-                view_count_value = (
-                    merged.get("statistics", {}).get("viewCount")
-                    if isinstance(merged.get("statistics"), dict)
-                    else None
-                )
-                try:
-                    view_count = int(view_count_value) if view_count_value is not None else None
-                except (TypeError, ValueError):
-                    view_count = None
-                merged["view_count"] = view_count
-
-                snippet = merged.get("snippet") or {}
-                merged["publish_date"] = snippet.get("publishedAt")
-                tags = snippet.get("tags") if isinstance(snippet, dict) else None
-                merged["tags"] = tags or []
-
-                duration_iso = (
-                    merged.get("contentDetails", {}).get("duration")
-                    if isinstance(merged.get("contentDetails"), dict)
-                    else None
-                )
-                if duration_iso:
-                    try:
-                        merged["duration_seconds"] = parse_iso8601_duration(duration_iso)
-                        merged["duration"] = duration_iso
-                    except ValueError:
-                        logger.warning("Failed to parse duration for video %s", video_id)
-
-                enriched_items.append(merged)
+            enriched_items = _enrich_with_details(items, details_map)
 
             if order == "viewCount":
                 enriched_items.sort(key=lambda item: item.get("view_count") or 0, reverse=True)
@@ -321,6 +387,7 @@ class SearchChannelVideosTool(BaseTool):
                 "published_before": params.get("publishedBefore"),
                 "order": order,
                 "videos": enriched_items,
+                "source": "search.list",
             }
         except HttpError as http_err:
             logger.exception(

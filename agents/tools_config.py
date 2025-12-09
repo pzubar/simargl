@@ -12,13 +12,19 @@ from tools.batch_tool import SubmitBatchJobTool, GetBatchResultsTool
 from tools.youtube import (
     GetLatestVideosTool,
     GetVideoCommentsTool,
-    SearchChannelVideosTool,
     GetVideoDetailsTool,
     GetChannelDetailsTool,
+    ListChannelUploadsTool,
+    EnrichPlaylistVideosTool,
+    SearchChannelVideosTool,
     UploadTranscriptToGeminiFileTool,
 )
 
 DISCOVERY_TOOLS = [
+    # Always prefer playlist-based listing when there is NO text query.
+    ListChannelUploadsTool(),
+    EnrichPlaylistVideosTool(),
+    # Only use search when there is a non-empty query string.
     SearchChannelVideosTool(),
     GetLatestVideosTool(),
     ManageChannelRegistryTool(),

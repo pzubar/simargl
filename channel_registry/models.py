@@ -39,6 +39,10 @@ class ChannelRecord(BaseModel):
         description="Gemini File Search store resource storing transcripts and comments.",
     )
     metadata: ChannelMetadata = Field(default_factory=ChannelMetadata)
+    uploads_playlist_id: Optional[str] = Field(
+        default=None,
+        description="Uploads playlist ID (UU...) for efficient video listing.",
+    )
     created_at: datetime = Field(default_factory=datetime.utcnow)
     updated_at: datetime = Field(default_factory=datetime.utcnow)
 
