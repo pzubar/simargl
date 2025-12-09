@@ -6,13 +6,18 @@ from typing import Any, Dict, List
 from google.adk.tools import BaseTool, _automatic_function_calling_util as tool_utils
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
-from google.adk.agents.run_config import RunConfig
 from google.genai import types
 from pydantic import BaseModel, Field
 
-from agents.sub_agents import discovery_agent, analyst_agent, historian_agent, critique_agent
-
 logger = logging.getLogger(__name__)
+
+
+def _load_sub_agent(agent_attr: str):
+    """Lazy-load sub-agents to avoid import cycles with tools_config."""
+    from agents import sub_agents
+
+    return getattr(sub_agents, agent_attr)
+
 
 class DelegationInput(BaseModel):
     query: str = Field(..., description="The query or instructions for the sub-agent.")
@@ -20,9 +25,10 @@ class DelegationInput(BaseModel):
 class BaseDelegationTool(BaseTool):
     """Base class for delegation tools."""
     
-    def __init__(self, name: str, description: str, agent: Any):
+    def __init__(self, name: str, description: str, agent_loader):
         super().__init__(name=name, description=description)
-        self.target_agent = agent
+        self.target_agent = None
+        self._agent_loader = agent_loader
         self.session_service = InMemorySessionService()
 
     @property
@@ -37,13 +43,18 @@ class BaseDelegationTool(BaseTool):
         declaration.name = self.NAME
         return declaration
 
+    def _get_target_agent(self):
+        if self.target_agent is None:
+            self.target_agent = self._agent_loader()
+        return self.target_agent
+
     async def _run_agent(self, query: str, session_id: str = None) -> str:
         """Runs the target agent and returns the final text response."""
         if not session_id:
             session = self.session_service.create_session_sync(user_id="simargl_user", app_name="simargl")
             session_id = session.id
-
-        runner = Runner(agent=self.target_agent, session_service=self.session_service, app_name="simargl")
+        agent = self._get_target_agent()
+        runner = Runner(agent=agent, session_service=self.session_service, app_name="simargl")
         
         message = types.Content(
             role="user", parts=[types.Part.from_text(text=query)]
@@ -93,7 +104,7 @@ class DiscoveryDelegationTool(BaseDelegationTool):
         super().__init__(
             name=self.NAME,
             description=self.DESCRIPTION,
-            agent=discovery_agent
+            agent_loader=lambda: _load_sub_agent("discovery_agent"),
         )
 
 class AnalystDelegationTool(BaseDelegationTool):
@@ -104,7 +115,7 @@ class AnalystDelegationTool(BaseDelegationTool):
         super().__init__(
             name=self.NAME,
             description=self.DESCRIPTION,
-            agent=analyst_agent
+            agent_loader=lambda: _load_sub_agent("analyst_agent"),
         )
 
 class HistorianDelegationTool(BaseDelegationTool):
@@ -115,12 +126,12 @@ class HistorianDelegationTool(BaseDelegationTool):
         super().__init__(
             name=self.NAME,
             description=self.DESCRIPTION,
-            agent=historian_agent
+            agent_loader=lambda: _load_sub_agent("historian_agent"),
         )
-        self.critique_runner = Runner(agent=critique_agent, session_service=self.session_service, app_name="simargl")
 
     async def run_async(self, *, args: dict[str, Any], tool_context) -> Dict[str, Any]:
         query = args["query"]
+        critique_agent = _load_sub_agent("critique_agent")
         
         # 1. Start Historian Session
         session = self.session_service.create_session_sync(user_id="simargl_user", app_name="simargl")
@@ -140,12 +151,13 @@ class HistorianDelegationTool(BaseDelegationTool):
             # Critique needs a fresh session or stateless check. Let's use a fresh session each time to avoid context pollution.
             critique_session = self.session_service.create_session_sync(user_id="simargl_user", app_name="simargl")
             
+            critique_runner = Runner(agent=critique_agent, session_service=self.session_service, app_name="simargl")
             critique_message = types.Content(
                 role="user", parts=[types.Part.from_text(text=critique_input)]
             )
             
             critique_response = ""
-            events = self.critique_runner.run(
+            events = critique_runner.run(
                 new_message=critique_message,
                 user_id="simargl_user",
                 session_id=critique_session.id,

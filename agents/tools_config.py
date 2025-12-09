@@ -19,6 +19,11 @@ from tools.youtube import (
     SearchChannelVideosTool,
     UploadTranscriptToGeminiFileTool,
 )
+from agents.delegation_tools import (
+    DiscoveryDelegationTool,
+    AnalystDelegationTool,
+    HistorianDelegationTool,
+)
 
 DISCOVERY_TOOLS = [
     # Always prefer playlist-based listing when there is NO text query.
@@ -46,4 +51,11 @@ ANALYST_TOOLS = [
 MEMORY_TOOLS = [
     QueryFileSearchStoreTool(),
     CreateFileSearchStoreTool(),
+]
+
+# The orchestrator should only be able to delegate to sub-agents.
+ORCHESTRATOR_TOOLS = [
+    DiscoveryDelegationTool(),
+    AnalystDelegationTool(),
+    HistorianDelegationTool(),
 ]
