@@ -9,6 +9,11 @@ from tools.file_search_tool import (
 )
 from tools.transcript_tool import AnalyzeVideoTool
 from tools.batch_tool import SubmitBatchJobTool, GetBatchResultsTool
+from tools.video_memory_tools import (
+    IngestVideoTool,
+    MaintainVideoMetadataTool,
+    RetrieveVideosTool,
+)
 from tools.youtube import (
     GetLatestVideosTool,
     GetVideoCommentsTool,
@@ -46,6 +51,9 @@ ANALYST_TOOLS = [
     UploadFileSearchDocumentTool(), # Analyst needs to save results
     SubmitBatchJobTool(),
     GetBatchResultsTool(),
+    IngestVideoTool(),
+    MaintainVideoMetadataTool(),
+    RetrieveVideosTool(),
 ]
 
 MEMORY_TOOLS = [

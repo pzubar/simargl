@@ -17,14 +17,17 @@ locals {
     "cloudbuild.googleapis.com",
     "discoveryengine.googleapis.com",
     "aiplatform.googleapis.com",
+    "genai.googleapis.com",
     "serviceusage.googleapis.com",
     "bigquery.googleapis.com",
     "cloudresourcemanager.googleapis.com",
-    "cloudtrace.googleapis.com"
+    "cloudtrace.googleapis.com",
+    "firestore.googleapis.com"
   ]
 
   deploy_project_services = [
     "aiplatform.googleapis.com",
+    "genai.googleapis.com",
     "run.googleapis.com",
     "discoveryengine.googleapis.com",
     "cloudresourcemanager.googleapis.com",
@@ -33,6 +36,7 @@ locals {
     "serviceusage.googleapis.com",
     "logging.googleapis.com",
     "cloudtrace.googleapis.com",
+    "firestore.googleapis.com",
   ]
 
   deploy_project_ids = {

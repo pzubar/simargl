@@ -17,11 +17,15 @@ from config.settings import (
 )
 
 from .channel_memory_service import ChannelMemoryItem, ChannelMemoryService
+from .channel_registry_firestore import ChannelRegistryService
 from .file_search_service import FileSearchService
 from .local_memory_service import LocalMemoryService
+from .video_metadata_service import VideoMetadataService
 
 _channel_memory_service: Optional[ChannelMemoryService] = None
 _file_search_service: Optional[FileSearchService] = None
+_channel_registry_service: Optional[ChannelRegistryService] = None
+_video_metadata_service: Optional[VideoMetadataService] = None
 
 
 def get_channel_memory_service() -> ChannelMemoryService:
@@ -50,12 +54,30 @@ def get_file_search_service() -> FileSearchService:
     return _file_search_service
 
 
+def get_channel_registry_service() -> ChannelRegistryService:
+    global _channel_registry_service  # noqa: PLW0603
+    if _channel_registry_service is None:
+        _channel_registry_service = ChannelRegistryService(project_id=GCP_PROJECT_ID)
+    return _channel_registry_service
+
+
+def get_video_metadata_service() -> VideoMetadataService:
+    global _video_metadata_service  # noqa: PLW0603
+    if _video_metadata_service is None:
+        _video_metadata_service = VideoMetadataService(project_id=GCP_PROJECT_ID)
+    return _video_metadata_service
+
+
 __all__ = [
     "ChannelMemoryItem",
     "ChannelMemoryService",
+    "ChannelRegistryService",
+    "VideoMetadataService",
     "FileSearchService",
     "get_channel_memory_service",
     "get_file_search_service",
+    "get_channel_registry_service",
+    "get_video_metadata_service",
 ]
 
 

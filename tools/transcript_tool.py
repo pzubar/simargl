@@ -17,12 +17,26 @@ from google.genai import types
 from google.adk.tools import BaseTool, _automatic_function_calling_util as tool_utils
 from googleapiclient.discovery import build  # Import build
 from pydantic import BaseModel, Field
-from simargl_agent.schemas import TranscriptSegment, VideoData
 from youtube_transcript_api import (
     NoTranscriptFound,
     TranscriptsDisabled,
     YouTubeTranscriptApi,
 )
+
+# Avoid circular import when Streamlit loads tools before agent wiring.
+try:
+    from simargl_agent.schemas import TranscriptSegment, VideoData
+except Exception:  # pragma: no cover - fallback for import cycles
+    class TranscriptSegment(BaseModel):
+        text: str = Field(description="The transcript text for this segment.")
+        start_time: float = Field(description="Start time in seconds.")
+        end_time: Optional[float] = Field(default=None, description="End time in seconds (if available).")
+
+    class VideoData(BaseModel):
+        video_id: str
+        source_type: str
+        content: str
+        segments: List[TranscriptSegment] = Field(default_factory=list)
 
 from config.settings import (
     BASE_DIR,

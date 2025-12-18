@@ -15,6 +15,7 @@
 locals {
   services = [
     "aiplatform.googleapis.com",
+    "genai.googleapis.com",
     "cloudbuild.googleapis.com",
     "run.googleapis.com",
     "bigquery.googleapis.com",
@@ -25,6 +26,7 @@ locals {
     "serviceusage.googleapis.com",
     "logging.googleapis.com",
     "cloudtrace.googleapis.com",
+    "firestore.googleapis.com",
   ]
 }
 

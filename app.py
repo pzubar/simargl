@@ -4,45 +4,30 @@ from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
 from typing import List
 
 import requests
 import streamlit as st
 
 from channel_registry import get_channel_registry
-from channel_registry.refresh_service import ChannelRefreshService
-from config.settings import ADK_SERVER_HOST, CHANNEL_DB_PATH
+from config.settings import ADK_SERVER_HOST
+from memory import (
+    get_channel_registry_service,
+    get_file_search_service,
+    get_video_metadata_service,
+)
+from services import PlaylistIngestService
+from tools.video_memory_tools import IngestVideoTool, MaintainVideoMetadataTool
 
 logger = logging.getLogger(__name__)
-CHANNEL_DB = Path(CHANNEL_DB_PATH)
-
-
-def load_channels() -> List[str]:
-    """Load the stored channel identifiers from the JSON file."""
-    if not CHANNEL_DB.exists():
-        return []
-
-    try:
-        return json.loads(CHANNEL_DB.read_text())
-    except json.JSONDecodeError:
-        logger.warning("channels.json is malformed. Recreating it.")
-        return []
-
-
-def save_channels(channels: List[str]) -> None:
-    """Persist the channel identifiers to disk."""
-    CHANNEL_DB.write_text(json.dumps(sorted(set(channels))))
-
-
 def sidebar_channel_manager() -> List[str]:
     """Render the sidebar controls for managing target channels."""
+    from channel_registry.refresh_service import ChannelRefreshService
     registry = get_channel_registry()
     refresher = ChannelRefreshService()
+    playlist_ingest = PlaylistIngestService()
 
     st.sidebar.header("Channel Intelligence")
-    channels = load_channels()
-
     with st.sidebar.form("add-channel-form"):
         new_channel = st.text_input("Add channel ID / @handle / URL")
         owner = st.text_input("Owner / Persona (optional)")
@@ -53,16 +38,32 @@ def sidebar_channel_manager() -> List[str]:
             record = registry.find_or_create_by_identifier(new_channel.strip())
             if owner:
                 registry.update_partial(record.channel_id, owner=owner.strip())
-            channels.append(new_channel.strip())
-            save_channels(channels)
-            st.sidebar.success(f"Channel '{record.title or record.channel_id}' saved.")
+            logger.info("UI: scheduling uploads ingest for channel=%s", record.channel_id)
+            with st.spinner("Scheduling uploads ingestion..."):
+                try:
+                    job = playlist_ingest.enqueue_and_run(record.channel_id)
+                    st.sidebar.success(
+                        f"Channel '{record.title or record.channel_id}' saved and queued "
+                        f"uploads ingest ({job.get('video_count', 0)} videos)."
+                    )
+                    logger.info(
+                        "UI: ingest job finished job_id=%s state=%s videos=%s",
+                        job.get("job_id"),
+                        job.get("state"),
+                        job.get("video_count"),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("UI: ingest scheduling failed for channel=%s", record.channel_id)
+                    st.sidebar.warning(
+                        f"Channel saved, but ingestion scheduling failed: {exc}"
+                    )
         else:
             st.sidebar.warning("Please enter a valid channel identifier.")
 
     records = registry.list_channels()
     if not records:
         st.sidebar.info("No channels saved yet.")
-        return channels
+        return []
 
     for record in records:
         label = record.title or record.handle or record.channel_id
@@ -93,7 +94,19 @@ def sidebar_channel_manager() -> List[str]:
                 st.sidebar.success("Notes saved.")
                 st.experimental_rerun()
 
-    return channels
+    st.sidebar.markdown("---")
+    st.sidebar.caption("Uploads ingest jobs")
+    jobs = playlist_ingest.list_jobs()[:5]
+    if not jobs:
+        st.sidebar.caption("No ingest jobs yet.")
+    else:
+        for job in jobs:
+            st.sidebar.caption(
+                f"{job.get('state')}: {job.get('channel_id')} "
+                f"({job.get('video_count', 0)} videos)"
+            )
+
+    return []
 
 
 def sidebar_batch_manager() -> None:
@@ -149,6 +162,99 @@ def sidebar_batch_manager() -> None:
                     st.experimental_rerun()
 
 
+def _extract_video_id(url_or_id: str) -> str:
+    if "youtube.com/watch" in url_or_id and "v=" in url_or_id:
+        return url_or_id.split("v=")[1].split("&")[0]
+    if "youtu.be/" in url_or_id:
+        return url_or_id.split("youtu.be/")[1].split("?")[0]
+    return url_or_id.strip()
+
+
+def render_memory_control_plane() -> None:
+    """Shared library view backed by Firestore + File Search."""
+    st.subheader("Hybrid Memory Library")
+    video_service = get_video_metadata_service()
+    channel_service = get_channel_registry_service()
+
+    videos = video_service.list()
+    filtered_videos = videos
+    # Enrich channel titles
+    for v in filtered_videos:
+        cid = v.get("channel_id")
+        channel = channel_service.get(cid) if cid else None
+        v["channel_title"] = channel.get("channel_title") if channel else None
+        v["tags"] = v.get("tags") or []
+        v["custom_tags"] = v.get("custom_tags") or []
+        v["has_transcript"] = bool(v.get("rag_resource_name"))
+
+    if filtered_videos:
+        st.dataframe(
+            [
+                {
+                    "title": v.get("title"),
+                    "channel": v.get("channel_title") or v.get("channel_id"),
+                    "published_at": v.get("published_at"),
+                    "views": v.get("view_count"),
+                    "tags": ", ".join(v.get("tags", [])),
+                    "custom_tags": ", ".join(v.get("custom_tags", [])),
+                    "has_transcript": v.get("has_transcript"),
+                }
+                for v in filtered_videos
+            ],
+            use_container_width=True,
+        )
+    else:
+        st.info("No videos ingested yet.")
+
+    st.markdown("---")
+    col_ingest, col_edit, col_delete = st.columns(3)
+
+    with col_ingest:
+        st.markdown("**Manual ingest**")
+        url_input = st.text_input("YouTube URL or ID", key="ingest-url")
+        store_name = st.text_input("File Search store", value="simargl-file-search", key="ingest-store")
+        if st.button("Add video", key="ingest-btn"):
+            vid = _extract_video_id(url_input)
+            with st.spinner("Ingesting..."):
+                result = IngestVideoTool()(video_id=vid, file_search_store_name=store_name)
+            if result.get("status") == "success":
+                st.success("Ingested successfully.")
+                st.experimental_rerun()
+            else:
+                st.error(result.get("message", "Failed to ingest"))
+
+    with col_edit:
+        st.markdown("**Edit metadata**")
+        all_ids = [v.get("video_id") for v in videos]
+        selected_id = st.selectbox("Select video", options=all_ids or ["—"], key="edit-video")
+        new_tags = st.text_input("Add custom tags (comma separated)", key="edit-tags")
+        summary = st.text_area("Agent summary", key="edit-summary")
+        if st.button("Save metadata", key="save-metadata"):
+            payload = {
+                "video_id": selected_id,
+                "add_custom_tags": [t.strip() for t in new_tags.split(",") if t.strip()],
+                "agent_summary": summary.strip() or None,
+            }
+            result = MaintainVideoMetadataTool()(**payload)
+            if result.get("status") == "success":
+                st.success("Metadata updated.")
+                st.experimental_rerun()
+            else:
+                st.error(result.get("message", "Failed to update metadata"))
+
+    with col_delete:
+        st.markdown("**Delete video (cascade)**")
+        delete_id = st.selectbox("Select video to delete", options=all_ids or ["—"], key="delete-video")
+        confirm = st.checkbox("Confirm delete", key="confirm-delete")
+        if st.button("Delete", key="delete-btn") and confirm:
+            fs_service = get_file_search_service()
+            rag_resource = video_service.delete(delete_id)
+            if rag_resource:
+                fs_service.delete_document(document_name=rag_resource)
+            st.success("Deleted video and associated RAG document (if present).")
+            st.experimental_rerun()
+
+
 def ensure_session_state() -> None:
     """Initialize session state for chat messages."""
     if "messages" not in st.session_state:
@@ -178,6 +284,7 @@ def main() -> None:
 
     sidebar_channel_manager()
     sidebar_batch_manager()
+    render_memory_control_plane()
     ensure_session_state()
     render_chat_history()
 

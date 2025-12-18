@@ -105,6 +105,19 @@ class FileSearchService:
                 except OSError:
                     logger.warning("Failed to clean up temp file %s", tmp_path)
 
+    def delete_document(self, *, document_name: str) -> bool:
+        """Delete a File Search document by resource name."""
+        self.ensure_enabled()
+        if not document_name:
+            return False
+        try:
+            self._client.files.delete(name=document_name)
+            logger.info("Deleted File Search document %s", document_name)
+            return True
+        except Exception as exc:  # pragma: no cover - network error paths
+            logger.warning("Failed to delete File Search document %s: %s", document_name, exc)
+            return False
+
     def query(
         self,
         *,

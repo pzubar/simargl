@@ -4,15 +4,49 @@ Simargl is an intelligent agent system designed to discover, analyze, and track 
 
 ## Setup and Running
 
-To run the agent, use the `adk web` command. This launches the ADK Developer UI, where you can interact with the agent, trace execution, and debug tool calls.
+### 1) Install dependencies
 
 ```bash
-# Run from the project root
+uv pip install -r requirements.txt
+```
+
+### 2) Run the agent (ADK web UI)
+
+```bash
 export PYTHONPATH=$PYTHONPATH:.
 adk web simargl_agent
 ```
 
-This will start the server, typically at `http://localhost:3000` (or another port if specified).
+### 3) Run the Streamlit control plane (manual ingest/CRUD UI)
+
+```bash
+# Required env: GCP_PROJECT_ID, YOUTUBE_API_KEY, optional GCP_REGION (default us-central1)
+export PYTHONPATH=$PYTHONPATH:.
+uv run streamlit run app.py --server.port 8501
+```
+
+The Streamlit UI reuses the same services/tools as the agent; use it to ingest videos, edit custom tags/summaries, and cascade delete (Firestore + File Search).
+
+## Provision Firestore + Gemini File Search with Terraform
+
+The repo includes Terraform to create:
+- Firestore (native, `(default)` database) in your `region`
+- Discovery Engine data store for Gemini File Search
+- Required APIs (firestore, discoveryengine, genai, etc.)
+
+### Quickstart (dev stack)
+```bash
+cd deployment/terraform/dev
+terraform init
+terraform apply \
+  -var="dev_project_id=${GCP_PROJECT_ID}" \
+  -var="region=${GCP_REGION:-us-central1}"
+```
+
+Notes:
+- Ensure `gcloud auth application-default login` (or set `GOOGLE_APPLICATION_CREDENTIALS`) before running.
+- The dev stack provisions Firestore `(default)` and a data store named `${var.project_name}-file-search` (`project_name` defaults to `simargl`).
+- For staging/prod, use `deployment/terraform` with `prod_project_id` and `staging_project_id` variables.
 
 ## Architecture Overview
 

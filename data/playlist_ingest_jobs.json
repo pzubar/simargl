@@ -1,0 +1,14 @@
+{
+  "playlist_ingest_65775c583ab04936841ed69dcd4615ce": {
+    "job_id": "playlist_ingest_65775c583ab04936841ed69dcd4615ce",
+    "channel_id": "UC5HBd4l_kpba5b0O1pK-Bfg",
+    "playlist_id": "UU5HBd4l_kpba5b0O1pK-Bfg",
+    "state": "COMPLETED",
+    "created_at": "2025-12-18T09:21:07.809498",
+    "max_items": 120,
+    "video_count": 120,
+    "enriched_count": 120,
+    "error_message": null,
+    "updated_at": "2025-12-18T09:23:17.160319"
+  }
+}
