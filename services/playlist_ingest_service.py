@@ -105,7 +105,7 @@ class PlaylistIngestService:
         self._ensure_db()
 
     # ---------- Public API ----------
-    def enqueue(self, channel_identifier: str, *, max_items: int = 1000) -> Dict[str, Any]:
+    def enqueue(self, channel_identifier: str, *, max_items: int = 300) -> Dict[str, Any]:
         channel_id = self._resolve_channel_id(channel_identifier)
         playlist_id = self._resolve_playlist_id(channel_id)
 

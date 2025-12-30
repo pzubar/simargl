@@ -187,7 +187,7 @@ class PlaylistIngestServiceTest(TestCase):
             )
             job = service.enqueue("UC123")
 
-        self.assertEqual(1000, job["max_items"])
+        self.assertEqual(300, job["max_items"])
 
     def test_ingest_updates_next_page_token(self):
         playlist_items = [

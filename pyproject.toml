@@ -6,13 +6,15 @@ authors = [
     {name = "Your Name", email = "your@email.com"},
 ]
 dependencies = [
-    "google-adk>=1.20.0,<2.0.0",
+    "google-adk>=1.21.0,<2.0.0",
     "opentelemetry-exporter-gcp-trace>=1.9.0,<2.0.0",
     "google-cloud-logging>=3.12.0,<4.0.0",
+    "google-cloud-firestore>=2.0.0,<3.0.0",
     "google-cloud-aiplatform[evaluation,agent-engines]>=1.118.0,<2.0.0",
     "protobuf>=6.31.1,<7.0.0",
     "absl-py>=2.1.0,<3.0.0",
     "youtube-transcript-api>=0.6.2,<1.0.0",
+    "streamlit>=1.28.0,<2.0.0",
 ]
 
 requires-python = ">=3.10,<3.13"
