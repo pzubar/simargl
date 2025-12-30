@@ -12,6 +12,8 @@ from tools.batch_tool import SubmitBatchJobTool, GetBatchResultsTool
 from tools.video_memory_tools import (
     IngestVideoTool,
     MaintainVideoMetadataTool,
+    QueryChannelVideosTool,
+    RefreshVideoStatsTool,
     RetrieveVideosTool,
 )
 from tools.youtube import (
@@ -31,14 +33,16 @@ from agents.delegation_tools import (
 )
 
 DISCOVERY_TOOLS = [
-    # Always prefer playlist-based listing when there is NO text query.
-    ListChannelUploadsTool(),
-    EnrichPlaylistVideosTool(),
-    # Only use search when there is a non-empty query string.
-    SearchChannelVideosTool(),
-    GetLatestVideosTool(),
+    # FIRESTORE-FIRST: Primary tools for querying local database
+    QueryChannelVideosTool(),  # Query videos by channel with sorting (Firestore)
+    RefreshVideoStatsTool(),   # Batch-refresh stats from YouTube API
     ManageChannelRegistryTool(),
     RefreshChannelMetadataTool(),
+    # YouTube API tools - only use when explicitly requested or for fallback
+    ListChannelUploadsTool(),
+    EnrichPlaylistVideosTool(),
+    SearchChannelVideosTool(),  # Only use with explicit "search YouTube" request
+    GetLatestVideosTool(),
     GetVideoDetailsTool(),
     GetChannelDetailsTool(),
 ]

@@ -10,7 +10,6 @@ from googleapiclient.errors import HttpError
 
 from config.settings import CHANNEL_METADATA_TTL_HOURS
 from memory import ChannelMemoryItem, get_channel_memory_service
-from tools.youtube_tool import get_youtube_service
 
 from . import get_channel_registry
 from .models import ChannelRecord
@@ -50,6 +49,9 @@ class ChannelRefreshService:
         return datetime.utcnow() >= max_age
 
     def _fetch_channel_payload(self, record: ChannelRecord) -> Optional[Dict[str, Any]]:
+        # Lazy import to avoid circular imports via tools.__init__.
+        from tools.youtube_tool import get_youtube_service
+
         service = get_youtube_service()
         params: Dict[str, Any] = {
             "part": "snippet,statistics",

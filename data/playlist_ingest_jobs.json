@@ -10,5 +10,31 @@
     "enriched_count": 120,
     "error_message": null,
     "updated_at": "2025-12-18T09:23:17.160319"
+  },
+  "playlist_ingest_6fa2e5e8dc1a46ec9f6d77afe7a035ba": {
+    "job_id": "playlist_ingest_6fa2e5e8dc1a46ec9f6d77afe7a035ba",
+    "channel_id": "UC5HBd4l_kpba5b0O1pK-Bfg",
+    "playlist_id": "UU5HBd4l_kpba5b0O1pK-Bfg",
+    "state": "COMPLETED",
+    "created_at": "2025-12-18T12:39:07.398120",
+    "max_items": 120,
+    "video_count": 120,
+    "enriched_count": 120,
+    "error_message": null,
+    "updated_at": "2025-12-18T12:40:23.961285"
+  },
+  "playlist_ingest_58a38b06148d4f068d792fb041733ae1": {
+    "job_id": "playlist_ingest_58a38b06148d4f068d792fb041733ae1",
+    "channel_id": "UC5HBd4l_kpba5b0O1pK-Bfg",
+    "playlist_id": "UU5HBd4l_kpba5b0O1pK-Bfg",
+    "state": "COMPLETED",
+    "created_at": "2025-12-18T12:55:56.151089",
+    "max_items": 1000,
+    "start_page_token": null,
+    "next_page_token": "EAAaH1BUOkNPZ0hJaEEyUmtFMU1VUkZOMEUzTXpFMU56WTI",
+    "video_count": 1000,
+    "enriched_count": 1000,
+    "error_message": null,
+    "updated_at": "2025-12-18T13:06:24.362502"
   }
 }

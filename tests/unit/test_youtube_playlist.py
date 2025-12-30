@@ -132,10 +132,23 @@ class _StubVideoMetadataService:
 class _StubChannelRegistryService:
     def __init__(self):
         self.last_upsert = None
+        self.ingest_state = {"uploads_next_page_token": None, "uploads_last_ingested_at": None}
 
     def upsert(self, **kwargs):
         self.last_upsert = kwargs
+        if "uploads_next_page_token" in kwargs:
+            self.ingest_state["uploads_next_page_token"] = kwargs["uploads_next_page_token"]
+        if "uploads_last_ingested_at" in kwargs:
+            self.ingest_state["uploads_last_ingested_at"] = kwargs["uploads_last_ingested_at"]
         return kwargs
+
+    def get_ingest_state(self, channel_id):
+        return dict(self.ingest_state)
+
+    def update_ingest_state(self, channel_id, *, uploads_next_page_token, last_ingested_at=None):
+        self.ingest_state["uploads_next_page_token"] = uploads_next_page_token
+        self.ingest_state["uploads_last_ingested_at"] = last_ingested_at
+        return dict(self.ingest_state)
 
 
 class _StubEnrichTool:
@@ -157,6 +170,60 @@ class _StubEnrichTool:
 
 
 class PlaylistIngestServiceTest(TestCase):
+    def test_enqueue_defaults_to_1000_items(self):
+        channel_service = _StubChannelRegistryService()
+        with tempfile.TemporaryDirectory() as tmp_dir, patch(
+            "services.playlist_ingest_service.resolve_channel_identifier", side_effect=lambda x: x
+        ), patch(
+            "services.playlist_ingest_service.resolve_uploads_playlist_id", return_value="UU123"
+        ):
+            service = PlaylistIngestService(
+                jobs_db_path=str(Path(tmp_dir) / "jobs.json"),
+                video_service=_StubVideoMetadataService(),
+                channel_service=channel_service,
+                youtube_service=None,
+                playlist_fetcher=lambda *args, **kwargs: ([], None),
+                enrich_tool=_StubEnrichTool(),
+            )
+            job = service.enqueue("UC123")
+
+        self.assertEqual(1000, job["max_items"])
+
+    def test_ingest_updates_next_page_token(self):
+        playlist_items = [
+            {"snippet": {"title": "Video 1"}, "contentDetails": {"videoId": "v1"}},
+            {"snippet": {"title": "Video 2"}, "contentDetails": {"videoId": "v2"}},
+        ]
+
+        def playlist_fetcher(service, playlist_id, max_items, label, start_token=None, on_page=None):
+            # Simulate one page with a follow-on token.
+            if on_page:
+                on_page("t1")
+            return playlist_items[:max_items], "t1"
+
+        channel_service = _StubChannelRegistryService()
+        video_service = _StubVideoMetadataService()
+
+        with tempfile.TemporaryDirectory() as tmp_dir, patch(
+            "services.playlist_ingest_service.resolve_channel_identifier", side_effect=lambda x: x
+        ), patch(
+            "services.playlist_ingest_service.resolve_uploads_playlist_id", return_value="UU123"
+        ):
+            service = PlaylistIngestService(
+                jobs_db_path=str(Path(tmp_dir) / "jobs.json"),
+                video_service=video_service,
+                channel_service=channel_service,
+                youtube_service=None,
+                playlist_fetcher=playlist_fetcher,
+                enrich_tool=_StubEnrichTool(),
+            )
+
+            job = service.enqueue("UC123", max_items=2)
+            result = service.run_job(job["job_id"])
+
+        self.assertEqual("t1", result.get("next_page_token"))
+        self.assertEqual("t1", channel_service.ingest_state["uploads_next_page_token"])
+
     def test_ingest_and_enrich_updates_metadata_and_preserves_custom_tags(self):
         playlist_items = [
             {

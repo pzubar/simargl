@@ -42,6 +42,8 @@ def _collect_playlist_items(
     *,
     max_results: int,
     label: str,
+    start_dt: Optional[datetime] = None,
+    end_dt: Optional[datetime] = None,
 ) -> List[Dict[str, Any]]:
     """Paginate playlistItems until we reach max_results or exhaust the feed."""
     collected: List[Dict[str, Any]] = []
@@ -60,7 +62,19 @@ def _collect_playlist_items(
             logger.info("YouTube API request (%s): %s", label, sanitized_uri)
         response = execute_request(request, retries=2, label=label)
         items = response.get("items", [])
-        collected.extend(items)
+        if start_dt or end_dt:
+            filtered: List[Dict[str, Any]] = []
+            for item in items:
+                published = _parse_rfc3339(item.get("snippet", {}).get("publishedAt"))
+                if start_dt and published and published < start_dt:
+                    page_token = None
+                    break
+                if end_dt and published and published > end_dt:
+                    continue
+                filtered.append(item)
+            collected.extend(filtered)
+        else:
+            collected.extend(items)
         page_token = response.get("nextPageToken")
         if not page_token:
             break

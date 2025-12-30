@@ -6,7 +6,7 @@ import json
 import logging
 import uuid
 from datetime import datetime
-from typing import Any, Callable, Dict, Iterable, List, Optional
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 from config.settings import BASE_DIR
 from memory import (
@@ -15,25 +15,57 @@ from memory import (
 )
 from tools.youtube.client import (
     get_youtube_service,
+    redact_request_uri,
     resolve_channel_identifier,
     resolve_uploads_playlist_id,
+    execute_request,
 )
 from tools.youtube.enrich_playlist_videos_tool import EnrichPlaylistVideosTool
-from tools.youtube.search_tool import _collect_playlist_items
 
 logger = logging.getLogger(__name__)
 
 # Type alias for dependency injection in tests.
-PlaylistFetcher = Callable[[Any, str, int, str], List[Dict[str, Any]]]
+PlaylistFetchResult = Union[List[Dict[str, Any]], Tuple[List[Dict[str, Any]], Optional[str]]]
+PlaylistFetcher = Callable[
+    [Any, str, int, str, Optional[str], Optional[Callable[[Optional[str]], None]]],
+    PlaylistFetchResult,
+]
 
 
-def _default_playlist_fetcher(service, playlist_id: str, max_items: int, label: str) -> List[Dict[str, Any]]:
-    return _collect_playlist_items(
-        service,
-        playlist_id,
-        max_results=max_items,
-        label=label,
-    )
+def _default_playlist_fetcher(
+    service,
+    playlist_id: str,
+    max_items: int,
+    label: str,
+    start_page_token: Optional[str] = None,
+    on_page: Optional[Callable[[Optional[str]], None]] = None,
+) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+    """Paginate uploads playlist while exposing the next page token."""
+    collected: List[Dict[str, Any]] = []
+    page_token = start_page_token
+
+    while len(collected) < max_items:
+        page_size = min(50, max_items - len(collected))
+        request = service.playlistItems().list(
+            part="snippet,contentDetails",
+            playlistId=playlist_id,
+            maxResults=page_size,
+            pageToken=page_token,
+        )
+        sanitized_uri = redact_request_uri(request)
+        if sanitized_uri:
+            logger.info("YouTube API request (%s): %s", label, sanitized_uri)
+        response = execute_request(request, retries=2, label=label)
+        items = response.get("items", [])
+        collected.extend(items)
+
+        page_token = response.get("nextPageToken")
+        if on_page:
+            on_page(page_token)
+        if not page_token:
+            break
+
+    return collected[:max_items], page_token
 
 
 def _chunked(seq: Iterable[str], size: int) -> Iterable[List[str]]:
@@ -73,7 +105,7 @@ class PlaylistIngestService:
         self._ensure_db()
 
     # ---------- Public API ----------
-    def enqueue(self, channel_identifier: str, *, max_items: int = 120) -> Dict[str, Any]:
+    def enqueue(self, channel_identifier: str, *, max_items: int = 1000) -> Dict[str, Any]:
         channel_id = self._resolve_channel_id(channel_identifier)
         playlist_id = self._resolve_playlist_id(channel_id)
 
@@ -92,6 +124,8 @@ class PlaylistIngestService:
             "state": "PENDING",
             "created_at": datetime.utcnow().isoformat(),
             "max_items": max_items,
+            "start_page_token": None,
+            "next_page_token": None,
             "video_count": 0,
             "enriched_count": 0,
             "error_message": None,
@@ -116,10 +150,15 @@ class PlaylistIngestService:
         self._save_job_record(job)
 
         try:
-            playlist_items = self._fetch_playlist_items(
+            start_token = self._get_channel_next_page_token(job["channel_id"])
+            job["start_page_token"] = start_token
+            playlist_items, next_page_token = self._fetch_playlist_items(
                 job["playlist_id"],
-                max_items=job.get("max_items", 120),
+                max_items=job.get("max_items", 1000),
+                channel_id=job["channel_id"],
+                start_token=start_token,
             )
+            job["next_page_token"] = next_page_token
             video_ids = self._upsert_playlist_items(
                 playlist_items,
                 channel_id=job["channel_id"],
@@ -150,7 +189,7 @@ class PlaylistIngestService:
         self._save_job_record(job)
         return job
 
-    def enqueue_and_run(self, channel_identifier: str, *, max_items: int = 120) -> Dict[str, Any]:
+    def enqueue_and_run(self, channel_identifier: str, *, max_items: int = 1000) -> Dict[str, Any]:
         job = self.enqueue(channel_identifier, max_items=max_items)
         return self.run_job(job["job_id"])
 
@@ -179,14 +218,46 @@ class PlaylistIngestService:
         )
         return playlist_id
 
-    def _fetch_playlist_items(self, playlist_id: str, *, max_items: int) -> List[Dict[str, Any]]:
+    def _fetch_playlist_items(
+        self,
+        playlist_id: str,
+        *,
+        max_items: int,
+        channel_id: str,
+        start_token: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], Optional[str]]:
         service = self._youtube_service or get_youtube_service()
+        start_token = start_token if start_token is not None else self._get_channel_next_page_token(channel_id)
         logger.info(
-            "Fetching playlist items: playlist=%s max_items=%s",
+            "Fetching playlist items: playlist=%s max_items=%s start_token=%s",
             playlist_id,
             max_items,
+            start_token,
         )
-        return self._playlist_fetcher(service, playlist_id, max_items, "uploads ingest")
+
+        def _on_page(next_token: Optional[str]) -> None:
+            self._update_channel_ingest_state(channel_id, next_token)
+
+        try:
+            result = self._playlist_fetcher(
+                service,
+                playlist_id,
+                max_items,
+                "uploads ingest",
+                start_token,
+                _on_page,
+            )
+        except TypeError:
+            result = self._playlist_fetcher(
+                service,
+                playlist_id,
+                max_items,
+                "uploads ingest",
+            )
+
+        items, next_token = self._normalize_fetch_result(result)
+        self._update_channel_ingest_state(channel_id, next_token)
+        return items, next_token
 
     def _upsert_playlist_items(self, items: List[Dict[str, Any]], *, channel_id: str) -> List[str]:
         video_ids: List[str] = []
@@ -276,6 +347,48 @@ class PlaylistIngestService:
                 enriched_total += 1
 
         return enriched_total
+
+    def _normalize_fetch_result(self, result: PlaylistFetchResult) -> Tuple[List[Dict[str, Any]], Optional[str]]:
+        if isinstance(result, tuple) and len(result) == 2 and isinstance(result[0], list):
+            return result[0], result[1]
+        if isinstance(result, dict):
+            return result.get("items", []), result.get("next_page_token")
+        return list(result or []), None
+
+    def _get_channel_next_page_token(self, channel_id: str) -> Optional[str]:
+        if hasattr(self._channel_service, "get_ingest_state"):
+            state = self._channel_service.get_ingest_state(channel_id)
+            if state:
+                return state.get("uploads_next_page_token")
+        if hasattr(self._channel_service, "get"):
+            state = self._channel_service.get(channel_id) or {}
+            return state.get("uploads_next_page_token")
+        return None
+
+    def _update_channel_ingest_state(self, channel_id: str, next_page_token: Optional[str]) -> None:
+        timestamp = datetime.utcnow()
+        if hasattr(self._channel_service, "update_ingest_state"):
+            self._channel_service.update_ingest_state(
+                channel_id,
+                uploads_next_page_token=next_page_token,
+                last_ingested_at=timestamp,
+            )
+            return
+        if hasattr(self._channel_service, "upsert"):
+            try:
+                self._channel_service.upsert(
+                    channel_id=channel_id,
+                    channel_title=channel_id,
+                    last_indexed_at=timestamp,
+                    uploads_next_page_token=next_page_token,
+                    uploads_last_ingested_at=timestamp,
+                )
+            except TypeError:
+                self._channel_service.upsert(
+                    channel_id=channel_id,
+                    channel_title=channel_id,
+                    last_indexed_at=timestamp,
+                )
 
     # ---------- Storage helpers ----------
     def _ensure_db(self) -> None:

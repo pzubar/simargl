@@ -51,6 +51,32 @@ class RetrievalInput(BaseModel):
     limit: int = Field(default=25, description="Maximum rows to return.")
 
 
+class QueryChannelVideosInput(BaseModel):
+    channel_id: str = Field(
+        ...,
+        description="The YouTube channel ID (UC...) to query videos for.",
+    )
+    order_by: str = Field(
+        default="view_count",
+        description="Field to sort by. Options: 'view_count', 'published_at', 'like_count'.",
+    )
+    descending: bool = Field(
+        default=True,
+        description="Sort direction. True for descending (highest first), False for ascending.",
+    )
+    limit: int = Field(
+        default=10,
+        description="Maximum number of videos to return.",
+    )
+
+
+class RefreshVideoStatsInput(BaseModel):
+    video_ids: List[str] = Field(
+        ...,
+        description="List of YouTube video IDs to refresh stats for (max 50).",
+    )
+
+
 # ---------- Helper utilities ----------
 def _fetch_video_details(video_id: str) -> Dict[str, Any]:
     service = build("youtube", "v3", developerKey=YOUTUBE_API_KEY, cache_discovery=False)
@@ -296,10 +322,191 @@ class RetrieveVideosTool(BaseTool):
         return {"status": "success", "results": records}
 
 
+class QueryChannelVideosTool(BaseTool):
+    """Query videos for a specific channel from Firestore with sorting options."""
+
+    NAME = "query_channel_videos"
+    DESCRIPTION = (
+        "Query videos from the local database (Firestore) for a specific channel. "
+        "Supports sorting by view_count, published_at, or like_count. "
+        "Use this as the PRIMARY source for channel video queries - only use YouTube API "
+        "when explicitly asked to 'search YouTube' or when the channel is not in the database. "
+        "Stats may be stale; use refresh_video_stats to update if needed."
+    )
+
+    def __init__(self) -> None:
+        super().__init__(name=self.NAME, description=self.DESCRIPTION)
+
+    @property
+    def args_schema(self) -> type[QueryChannelVideosInput]:
+        return QueryChannelVideosInput
+
+    def _get_declaration(self):
+        declaration = tool_utils.build_function_declaration(
+            func=self.args_schema,
+            variant=self._api_variant,
+        )
+        declaration.name = self.NAME
+        return declaration
+
+    async def run_async(self, *, args: dict[str, Any], tool_context) -> Dict[str, Any]:
+        return self(
+            channel_id=args["channel_id"],
+            order_by=args.get("order_by", "view_count"),
+            descending=args.get("descending", True),
+            limit=args.get("limit", 10),
+        )
+
+    def __call__(
+        self,
+        channel_id: str,
+        order_by: str = "view_count",
+        descending: bool = True,
+        limit: int = 10,
+    ) -> Dict[str, Any]:
+        try:
+            # Check if channel exists in registry first
+            channel_service = get_channel_registry_service()
+            channel_record = channel_service.get(channel_id)
+
+            video_service = get_video_metadata_service()
+
+            # Get video count for the channel
+            video_count = video_service.count_by_channel(channel_id)
+
+            if video_count == 0:
+                return {
+                    "status": "not_found",
+                    "channel_id": channel_id,
+                    "channel_in_registry": channel_record is not None,
+                    "message": (
+                        f"No videos found in database for channel {channel_id}. "
+                        "The channel may not have been ingested yet. "
+                        "Would you like me to: (a) Search YouTube for this channel's videos, or "
+                        "(b) Ingest this channel first to build the local database?"
+                    ),
+                    "videos": [],
+                    "total_in_database": 0,
+                }
+
+            # Query videos with sorting
+            videos = video_service.list_by_channel_sorted(
+                channel_id,
+                order_by=order_by,
+                descending=descending,
+                limit=limit,
+            )
+
+            # Enrich with channel title
+            channel_title = None
+            if channel_record:
+                channel_title = channel_record.get("channel_title")
+
+            for video in videos:
+                if channel_title:
+                    video["channel_title"] = channel_title
+                # Add YouTube URL for convenience
+                video_id = video.get("video_id")
+                if video_id:
+                    video["url"] = f"https://www.youtube.com/watch?v={video_id}"
+
+            return {
+                "status": "success",
+                "channel_id": channel_id,
+                "channel_title": channel_title,
+                "order_by": order_by,
+                "descending": descending,
+                "total_in_database": video_count,
+                "returned_count": len(videos),
+                "videos": videos,
+                "note": "Stats may be stale. Use refresh_video_stats to update view/like counts.",
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to query channel videos for %s", channel_id)
+            return {"status": "error", "channel_id": channel_id, "message": str(exc)}
+
+
+class RefreshVideoStatsTool(BaseTool):
+    """Batch-refresh view/like counts from YouTube API for videos in Firestore."""
+
+    NAME = "refresh_video_stats"
+    DESCRIPTION = (
+        "Refresh view_count and like_count for a list of video IDs from YouTube API. "
+        "Use this after query_channel_videos if the user wants up-to-date statistics. "
+        "Accepts up to 50 video IDs per call. Cost: 1 quota unit per batch of 50."
+    )
+
+    def __init__(self) -> None:
+        super().__init__(name=self.NAME, description=self.DESCRIPTION)
+
+    @property
+    def args_schema(self) -> type[RefreshVideoStatsInput]:
+        return RefreshVideoStatsInput
+
+    def _get_declaration(self):
+        declaration = tool_utils.build_function_declaration(
+            func=self.args_schema,
+            variant=self._api_variant,
+        )
+        declaration.name = self.NAME
+        return declaration
+
+    async def run_async(self, *, args: dict[str, Any], tool_context) -> Dict[str, Any]:
+        return self(video_ids=args["video_ids"])
+
+    def __call__(self, video_ids: List[str]) -> Dict[str, Any]:
+        if not video_ids:
+            return {"status": "error", "message": "No video IDs provided."}
+
+        # Limit to 50 IDs per batch (YouTube API limit)
+        video_ids = video_ids[:50]
+
+        try:
+            service = build("youtube", "v3", developerKey=YOUTUBE_API_KEY, cache_discovery=False)
+            request = service.videos().list(
+                part="statistics",
+                id=",".join(video_ids),
+            )
+            response = request.execute()
+
+            stats_updates: List[Dict[str, Any]] = []
+            for item in response.get("items", []):
+                video_id = item.get("id")
+                statistics = item.get("statistics", {})
+                view_count = statistics.get("viewCount")
+                like_count = statistics.get("likeCount")
+
+                stats_updates.append({
+                    "video_id": video_id,
+                    "view_count": int(view_count) if view_count else None,
+                    "like_count": int(like_count) if like_count else None,
+                })
+
+            # Batch update Firestore
+            if stats_updates:
+                video_service = get_video_metadata_service()
+                video_service.bulk_update_stats(stats_updates)
+
+            return {
+                "status": "success",
+                "updated_count": len(stats_updates),
+                "updated_videos": stats_updates,
+            }
+        except HttpError as http_err:
+            logger.exception("YouTube API error during stats refresh")
+            return {"status": "error", "message": f"YouTube API error: {http_err}"}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Failed to refresh video stats")
+            return {"status": "error", "message": str(exc)}
+
+
 __all__ = [
     "IngestVideoTool",
     "MaintainVideoMetadataTool",
     "RetrieveVideosTool",
+    "QueryChannelVideosTool",
+    "RefreshVideoStatsTool",
 ]
+
 
 

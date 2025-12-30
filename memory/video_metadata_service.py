@@ -125,6 +125,237 @@ class VideoMetadataService:
             )
             raise
 
+    def list_page(
+        self,
+        *,
+        custom_tag: Optional[str] = None,
+        limit: int = 50,
+        start_after_published_at: Optional[Any] = None,
+    ) -> List[Dict[str, Any]]:
+        """Paged listing ordered by published_at desc with optional cursor."""
+        query = self._collection
+        if custom_tag:
+            query = query.where("custom_tags", "array_contains", custom_tag)
+        query = query.order_by("published_at", direction=firestore.Query.DESCENDING)
+        if start_after_published_at is not None:
+            query = query.start_after({"published_at": start_after_published_at})
+        try:
+            docs = query.limit(limit).stream()
+            results: List[Dict[str, Any]] = []
+            for doc in docs:
+                item = doc.to_dict() or {}
+                item["has_transcript"] = bool(item.get("rag_resource_name"))
+                results.append(item)
+            return results
+        except gcloud_exceptions.GoogleAPICallError as exc:
+            logger.error(
+                "Firestore paged query failed",
+                extra={
+                    "project": self._client.project,
+                    "collection_path": getattr(self._collection, "path", None),
+                    "custom_tag": custom_tag,
+                    "limit": limit,
+                    "start_after": start_after_published_at,
+                    "code": getattr(exc, "code", None),
+                    "details": getattr(exc, "details", None),
+                },
+            )
+            raise
+        except Exception:
+            logger.exception(
+                "Unexpected failure querying Firestore (paged)",
+                extra={
+                    "project": self._client.project,
+                    "collection_path": getattr(self._collection, "path", None),
+                    "custom_tag": custom_tag,
+                    "limit": limit,
+                    "start_after": start_after_published_at,
+                },
+            )
+            raise
+
+    def list_channel_page(
+        self,
+        channel_id: str,
+        *,
+        limit: int = 50,
+        start_after_published_at: Optional[Any] = None,
+    ) -> List[Dict[str, Any]]:
+        """Paged listing for a specific channel ordered by published_at desc."""
+        if not channel_id:
+            return []
+        query = (
+            self._collection.where("channel_id", "==", channel_id)
+            .order_by("published_at", direction=firestore.Query.DESCENDING)
+        )
+        if start_after_published_at is not None:
+            query = query.start_after({"published_at": start_after_published_at})
+        try:
+            docs = query.limit(limit).stream()
+            results: List[Dict[str, Any]] = []
+            for doc in docs:
+                item = doc.to_dict() or {}
+                item["has_transcript"] = bool(item.get("rag_resource_name"))
+                results.append(item)
+            return results
+        except gcloud_exceptions.GoogleAPICallError as exc:
+            logger.error(
+                "Firestore paged channel query failed",
+                extra={
+                    "project": self._client.project,
+                    "collection_path": getattr(self._collection, "path", None),
+                    "channel_id": channel_id,
+                    "limit": limit,
+                    "start_after": start_after_published_at,
+                    "code": getattr(exc, "code", None),
+                    "details": getattr(exc, "details", None),
+                },
+            )
+            raise
+        except Exception:
+            logger.exception(
+                "Unexpected failure querying channel videos (paged)",
+                extra={
+                    "project": self._client.project,
+                    "collection_path": getattr(self._collection, "path", None),
+                    "channel_id": channel_id,
+                    "limit": limit,
+                    "start_after": start_after_published_at,
+                },
+            )
+            raise
+
+    def count_by_channel(self, channel_id: str) -> int:
+        """Return the total number of videos for a channel (best-effort)."""
+        if not channel_id:
+            return 0
+        query = self._collection.where("channel_id", "==", channel_id)
+        try:
+            count_query = query.count()
+            results = count_query.get()
+            if results:
+                aggregation = results[0]
+                if isinstance(aggregation, tuple):
+                    aggregation = aggregation[0]
+                value = getattr(aggregation, "value", None)
+                if value is None and hasattr(aggregation, "get"):
+                    value = aggregation.get("count")  # type: ignore[attr-defined]
+                return int(value or 0)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "Count aggregation failed, falling back to scan",
+                extra={
+                    "project": self._client.project,
+                    "collection_path": getattr(self._collection, "path", None),
+                    "channel_id": channel_id,
+                },
+            )
+            try:
+                docs = query.limit(500).stream()
+                return sum(1 for _ in docs)
+            except Exception:  # noqa: BLE001
+                logger.exception("Fallback count scan failed")
+                return 0
+        return 0
+
+    def list_by_channel_sorted(
+        self,
+        channel_id: str,
+        *,
+        order_by: str = "view_count",
+        descending: bool = True,
+        limit: int = 25,
+    ) -> List[Dict[str, Any]]:
+        """Query videos for a channel, sorted by a specified field.
+
+        Args:
+            channel_id: The YouTube channel ID to filter by.
+            order_by: Field to sort by. Supported: "view_count", "published_at", "like_count".
+            descending: Sort direction (True for DESC, False for ASC).
+            limit: Maximum number of results to return.
+
+        Returns:
+            List of video metadata dictionaries.
+
+        Note:
+            Requires composite Firestore indexes on (channel_id, order_by field).
+        """
+        if not channel_id:
+            return []
+
+        allowed_order_fields = {"view_count", "published_at", "like_count"}
+        if order_by not in allowed_order_fields:
+            logger.warning(
+                "Invalid order_by field '%s', defaulting to 'view_count'", order_by
+            )
+            order_by = "view_count"
+
+        direction = (
+            firestore.Query.DESCENDING if descending else firestore.Query.ASCENDING
+        )
+
+        try:
+            query = (
+                self._collection.where("channel_id", "==", channel_id)
+                .order_by(order_by, direction=direction)
+                .limit(limit)
+            )
+            docs = query.stream()
+            results: List[Dict[str, Any]] = []
+            for doc in docs:
+                item = doc.to_dict() or {}
+                item["has_transcript"] = bool(item.get("rag_resource_name"))
+                results.append(item)
+            return results
+        except gcloud_exceptions.GoogleAPICallError as exc:
+            logger.error(
+                "Firestore sorted channel query failed",
+                extra={
+                    "project": self._client.project,
+                    "collection_path": getattr(self._collection, "path", None),
+                    "channel_id": channel_id,
+                    "order_by": order_by,
+                    "limit": limit,
+                    "code": getattr(exc, "code", None),
+                    "details": getattr(exc, "details", None),
+                },
+            )
+            raise
+        except Exception:
+            logger.exception(
+                "Unexpected failure querying channel videos (sorted)",
+                extra={
+                    "project": self._client.project,
+                    "collection_path": getattr(self._collection, "path", None),
+                    "channel_id": channel_id,
+                    "order_by": order_by,
+                    "limit": limit,
+                },
+            )
+            raise
+
+    def get_top_videos_by_channel(
+        self,
+        channel_id: str,
+        *,
+        limit: int = 10,
+    ) -> List[Dict[str, Any]]:
+        """Convenience method to get the most popular videos for a channel.
+
+        Args:
+            channel_id: The YouTube channel ID.
+            limit: Number of top videos to return (default 10).
+
+        Returns:
+            List of video metadata dictionaries, sorted by view_count descending.
+        """
+        return self.list_by_channel_sorted(
+            channel_id,
+            order_by="view_count",
+            descending=True,
+            limit=limit,
+        )
+
     def delete(self, video_id: str) -> Optional[str]:
         """Delete video doc and return rag_resource_name for cascade."""
         if not video_id:
@@ -159,5 +390,6 @@ class VideoMetadataService:
 
 
 __all__ = ["VideoMetadataService"]
+
 
 
