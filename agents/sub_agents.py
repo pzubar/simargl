@@ -1,10 +1,17 @@
 """Sub-agent definitions for Simargl."""
 
 from google.adk.agents.llm_agent import LlmAgent
-from config.settings import DEFAULT_GEMINI_MODEL
-from agents.tools_config import DISCOVERY_TOOLS, ANALYST_TOOLS, MEMORY_TOOLS
+from pathlib import Path
+from config.settings import BASE_DIR, DEFAULT_GEMINI_MODEL
+from agents.tools_config import (
+    ANALYST_TOOLS,
+    DISCOVERY_TOOLS,
+    MEMORY_TOOLS,
+    STENOGRAPHER_TOOLS,
+)
 
 MODEL_NAME = DEFAULT_GEMINI_MODEL
+STENOGRAPHER_MODEL = "gemini-2.5-flash"
 
 DISCOVERY_INSTRUCTION = """
 You are the Discovery Agent (Scout). Your goal is to find YouTube videos and channel metadata.
@@ -74,10 +81,9 @@ You are the Analyst Agent (Researcher).
 Your goal is to perform deep-dive analysis on specific videos or content.
 
 Responsibilities:
-1. Analyze video content using `analyze_video`.
-1. Analyze video content using `analyze_video`.
-   - **ID IS SUFFICIENT**: You can call `analyze_video` with JUST the `video_id`. The tool will handle URL construction and duration fetching.
-   - **No Questions**: Do not ask the user for URL or duration.
+1. Analyze video content using `analyze_video` (stenographer output in File Search; no direct video understanding).
+   - **ID IS SUFFICIENT**: Call `analyze_video` with the `video_id`. It will retrieve stenographer markdown from File Search.
+   - **No Video Fetching**: Do NOT attempt Gemini video understanding or transcript scraping here.
 2. Summarize comments using `get_video_comments` and `summarize_text`.
 3. Perform sentiment analysis using `get_sentiment`.
 4. SAVE your findings! If a `file_search_store_name` is provided, ensure you use tools that support saving (like `analyze_video` or `submit_batch_job`).
@@ -113,6 +119,20 @@ historian_agent = LlmAgent(
     model=MODEL_NAME,
     instruction=HISTORIAN_INSTRUCTION,
     tools=MEMORY_TOOLS,
+)
+
+# --- Stenographer Agent ---
+STENOGRAPHER_PROMPT_PATH = Path(BASE_DIR) / "prompts" / "Stenographer_v1.md"
+try:
+    STENOGRAPHER_INSTRUCTION = STENOGRAPHER_PROMPT_PATH.read_text(encoding="utf-8")
+except Exception:
+    STENOGRAPHER_INSTRUCTION = "You are the Stenographer Agent. Use the provided tool to generate stenographic markdown for the video."
+
+stenographer_agent = LlmAgent(
+    name="stenographer_agent",
+    model=STENOGRAPHER_MODEL,
+    instruction=STENOGRAPHER_INSTRUCTION,
+    tools=STENOGRAPHER_TOOLS,
 )
 
 

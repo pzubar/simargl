@@ -177,3 +177,15 @@ class HistorianDelegationTool(BaseDelegationTool):
         
         return {"response": draft_response, "verification": "Max retries reached. Potential issues remaining."}
 
+
+class StenographerDelegationTool(BaseDelegationTool):
+    NAME = "consult_stenographer_agent"
+    DESCRIPTION = "Delegates a task to the Stenographer Agent for Gemini 2.5 Flash stenographic processing."
+
+    def __init__(self):
+        super().__init__(
+            name=self.NAME,
+            description=self.DESCRIPTION,
+            agent_loader=lambda: _load_sub_agent("stenographer_agent"),
+        )
+

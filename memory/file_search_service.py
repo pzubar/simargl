@@ -126,6 +126,7 @@ class FileSearchService:
         top_k: int = 5,
         model_override: Optional[str] = None,
         instructions: Optional[str] = None,
+        metadata_filter: Optional[str] = None,
     ) -> Dict[str, object]:
         """Ask Gemini to ground its answer in a given File Search store."""
         self.ensure_enabled()
@@ -134,6 +135,7 @@ class FileSearchService:
             file_search=types.FileSearch(
                 file_search_store_names=[store_name],
                 top_k=top_k,
+                metadata_filter=metadata_filter,
             )
         )
         user_prompt = instructions or (

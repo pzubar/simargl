@@ -197,7 +197,6 @@ class IngestVideoTool(BaseTool):
                     "duration_sec": details.get("duration_sec"),
                     "view_count": details.get("view_count"),
                     "like_count": details.get("like_count"),
-                    "tags": details.get("tags") or [],
                     "custom_tags": [],
                     "channel_id": details.get("channel_id"),
                     "agent_summary": None,
@@ -507,6 +506,7 @@ __all__ = [
     "QueryChannelVideosTool",
     "RefreshVideoStatsTool",
 ]
+
 
 
 

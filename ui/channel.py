@@ -11,10 +11,17 @@ from memory import get_channel_registry_service, get_video_metadata_service
 PAGE_SIZE = 25
 
 
-def _init_channel_pagination(channel_id: str) -> None:
+def _init_channel_pagination(channel_id: str, *, descending: bool) -> None:
     tokens: Dict[str, List[Optional[Any]]] = st.session_state.setdefault("channel_page_tokens", {})
-    tokens.setdefault(channel_id, [None])
+    sort_orders: Dict[str, bool] = st.session_state.setdefault("channel_sort_orders", {})
+
+    # Reset pagination when the sort direction changes so we restart from the first page.
+    if channel_id not in tokens or sort_orders.get(channel_id) != descending:
+        tokens[channel_id] = [None]
+
+    sort_orders[channel_id] = descending
     st.session_state["channel_page_tokens"] = tokens
+    st.session_state["channel_sort_orders"] = sort_orders
 
 
 def _current_token(channel_id: str) -> Optional[Any]:
@@ -71,9 +78,9 @@ def _render_channel_header(channel: Dict[str, Any], video_count: int) -> None:
             value=notes,
             placeholder="Add notes about this channel/channel...",
             height=120,
-            key=f"notes-{channel.get('channel_id')}",
+            key=f"channel-notes-{channel.get('channel_id')}",
         )
-        if st.button("Save notes", key=f"save-notes-{channel.get('channel_id')}"):
+        if st.button("Save notes", key=f"channel-save-notes-{channel.get('channel_id')}"):
             channel_service = get_channel_registry_service()
             channel_service.update_partial(channel.get("channel_id"), notes=edited_notes.strip() or None)
             st.success("Notes saved.")
@@ -81,7 +88,15 @@ def _render_channel_header(channel: Dict[str, Any], video_count: int) -> None:
 
 
 def _render_video_table(channel_id: str) -> None:
-    _init_channel_pagination(channel_id)
+    sort_choice = st.radio(
+        "Sort by publish date",
+        options=["Newest first", "Oldest first"],
+        horizontal=True,
+        key=f"video-sort-{channel_id}",
+    )
+    descending = sort_choice == "Newest first"
+
+    _init_channel_pagination(channel_id, descending=descending)
     video_service = get_video_metadata_service()
 
     start_after = _current_token(channel_id)
@@ -89,6 +104,7 @@ def _render_video_table(channel_id: str) -> None:
         channel_id=channel_id,
         limit=PAGE_SIZE + 1,
         start_after_published_at=start_after,
+        descending=descending,
     )
     has_next = len(raw_videos) > PAGE_SIZE
     page_videos = raw_videos[:PAGE_SIZE]

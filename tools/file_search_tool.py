@@ -41,6 +41,10 @@ class QueryStoreInput(BaseModel):
         default=None,
         description="Override for the Gemini model used during retrieval.",
     )
+    metadata_filter: Optional[str] = Field(
+        default=None,
+        description="Optional metadata filter (AIP-160 syntax) to scope retrieval.",
+    )
 
 
 class CreateFileSearchStoreTool(BaseTool):
@@ -172,6 +176,7 @@ class QueryFileSearchStoreTool(BaseTool):
         top_k: int = 5,
         instructions: Optional[str] = None,
         model: Optional[str] = None,
+        metadata_filter: Optional[str] = None,
     ) -> Dict[str, object]:
         top_k = max(1, min(20, top_k))
         service = get_file_search_service()
@@ -181,6 +186,73 @@ class QueryFileSearchStoreTool(BaseTool):
             top_k=top_k,
             model_override=model,
             instructions=instructions,
+            metadata_filter=metadata_filter,
+        )
+
+
+class FilterInput(BaseModel):
+    store_name: str = Field(..., description="Resource name of the File Search store.")
+    metadata_filter: str = Field(..., description="AIP-160 metadata filter string.")
+    top_k: int = Field(5, description="Maximum results to return.")
+    query: Optional[str] = Field(
+        default="List matching documents with titles and video_id.",
+        description="Optional query text; defaults to a document listing request.",
+    )
+    model: Optional[str] = Field(
+        default=None,
+        description="Override for the Gemini model used during retrieval.",
+    )
+
+
+class FilterFileSearchDocumentsTool(BaseTool):
+    """List or filter documents in a File Search store using metadata filters."""
+
+    NAME = "filter_file_search_documents"
+    DESCRIPTION = "Returns matching documents from a File Search store using metadata_filter."
+
+    def __init__(self) -> None:
+        super().__init__(name=self.NAME, description=self.DESCRIPTION)
+
+    @property
+    def args_schema(self) -> type[FilterInput]:
+        return FilterInput
+
+    def _get_declaration(self):
+        declaration = tool_utils.build_function_declaration(
+            func=self.args_schema,
+            variant=self._api_variant,
+        )
+        declaration.name = self.NAME
+        return declaration
+
+    async def run_async(self, *, args: Dict[str, Any], tool_context) -> Dict[str, object]:
+        return self(
+            store_name=args["store_name"],
+            metadata_filter=args["metadata_filter"],
+            top_k=args.get("top_k", 5),
+            query=args.get("query"),
+            model=args.get("model"),
+        )
+
+    def __call__(  # type: ignore[override]
+        self,
+        store_name: str,
+        metadata_filter: str,
+        top_k: int = 5,
+        query: Optional[str] = None,
+        model: Optional[str] = None,
+    ) -> Dict[str, object]:
+        listing_query = query or "List matching documents with their display names and video_id."
+        service = get_file_search_service()
+        return service.query(
+            store_name=store_name,
+            query=listing_query,
+            top_k=top_k,
+            model_override=model,
+            metadata_filter=metadata_filter,
+            instructions=(
+                "List the matching documents and include document_name, title, and any cited metadata."
+            ),
         )
 
 
@@ -188,4 +260,5 @@ __all__ = [
     "CreateFileSearchStoreTool",
     "UploadFileSearchDocumentTool",
     "QueryFileSearchStoreTool",
+    "FilterFileSearchDocumentsTool",
 ]

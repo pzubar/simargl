@@ -10,11 +10,17 @@ Simargl is an intelligent agent system designed to discover, analyze, and track 
 uv pip install -r requirements.txt
 ```
 
+### Stenographer (Gemini 2.5 Flash)
+
+- Configure a single File Search store for stenographer outputs via `STENOGRAPHER_STORE_NAME` (resource name). Optional display label: `STENOGRAPHER_STORE_DISPLAY_NAME` (defaults to `stenographer-store`).
+- The Stenographer tool saves markdown with metadata: `video_id`, `channel_id`, `publication_date`, `artifact_type=stenographer`.
+- `analyze_video` now reads the stored stenographer markdown (no direct video understanding). Use metadata filters (AIP-160), e.g. `video_id="abc123" AND artifact_type="stenographer"`.
+
 ### 2) Run the agent (ADK web UI)
 
 ```bash
 export PYTHONPATH=$PYTHONPATH:.
-adk web simargl_agent
+adk web
 ```
 
 ### 3) Run the Streamlit control plane (manual ingest/CRUD UI)

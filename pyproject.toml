@@ -3,7 +3,7 @@ name = "simargl"
 version = "0.1.0"
 description = ""
 authors = [
-    {name = "Your Name", email = "your@email.com"},
+    {name = "Petro Zubar", email = "pmzubar@gmail.com"},
 ]
 dependencies = [
     "google-adk>=1.21.0,<2.0.0",

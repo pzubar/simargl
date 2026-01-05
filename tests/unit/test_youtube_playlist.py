@@ -119,12 +119,15 @@ class _StubVideoMetadataService:
 
     def upsert_metadata(self, video_id, payload, merge_custom_tags: bool = True):
         existing = self.records.get(video_id, {})
+        sanitized = {k: v for k, v in payload.items() if k not in {"tags", "channel_title"}}
         incoming_custom = payload.get("custom_tags") or []
         existing_custom = existing.get("custom_tags") or []
         merged_custom = (
             sorted(set(existing_custom + incoming_custom)) if merge_custom_tags else incoming_custom
         )
-        merged = {**existing, **payload, "custom_tags": merged_custom}
+        merged = {**existing, **sanitized, "custom_tags": merged_custom}
+        merged.pop("tags", None)
+        merged.pop("channel_title", None)
         self.records[video_id] = merged
         return merged
 
@@ -281,6 +284,6 @@ class PlaylistIngestServiceTest(TestCase):
         self.assertEqual(10, v1.get("view_count"))
         self.assertEqual(120, v1.get("duration_sec"))
         self.assertIn("keep", v1.get("custom_tags"))
-        self.assertIn("a", v1.get("tags"))
+        self.assertNotIn("tags", v1)
 
         self.assertEqual("UC123", channel_service.last_upsert.get("channel_id"))

@@ -34,7 +34,7 @@
         }
       }
     },
-    "uploads_playlist_id": null,
+    "uploads_playlist_id": "UUZIFo5MmrUJS5JbLOxgnHuQ",
     "created_at": "2025-11-14T17:47:19.152659",
     "updated_at": "2025-11-14T17:47:19.354882"
   },
@@ -129,8 +129,133 @@
       "last_refreshed_at": null,
       "snapshot": {}
     },
-    "uploads_playlist_id": null,
+    "uploads_playlist_id": "UUjWy2g76QZf7QLEwx4cB46g",
     "created_at": "2025-12-09T08:28:05.076380",
     "updated_at": "2025-12-09T08:28:05.076380"
+  },
+  {
+    "channel_id": "UC-HNFt8XqtMXgkBlZB83v3A",
+    "handle": null,
+    "custom_url": null,
+    "title": null,
+    "description": null,
+    "owner": null,
+    "notes": null,
+    "tags": [],
+    "aliases": [
+      "UC-HNFt8XqtMXgkBlZB83v3A"
+    ],
+    "file_search_store_name": null,
+    "metadata": {
+      "subscriber_count": null,
+      "video_count": null,
+      "view_count": null,
+      "latest_video_id": null,
+      "last_refreshed_at": null,
+      "snapshot": {}
+    },
+    "uploads_playlist_id": "UU-HNFt8XqtMXgkBlZB83v3A",
+    "created_at": "2026-01-03T19:45:36.131945",
+    "updated_at": "2026-01-03T19:45:36.131966"
+  },
+  {
+    "channel_id": "UCg7T647ROSeONOCHeNMBduQ",
+    "handle": null,
+    "custom_url": null,
+    "title": null,
+    "description": null,
+    "owner": null,
+    "notes": null,
+    "tags": [],
+    "aliases": [
+      "UCg7T647ROSeONOCHeNMBduQ"
+    ],
+    "file_search_store_name": null,
+    "metadata": {
+      "subscriber_count": null,
+      "video_count": null,
+      "view_count": null,
+      "latest_video_id": null,
+      "last_refreshed_at": null,
+      "snapshot": {}
+    },
+    "uploads_playlist_id": "UUg7T647ROSeONOCHeNMBduQ",
+    "created_at": "2026-01-03T20:08:25.857036",
+    "updated_at": "2026-01-03T20:08:25.857060"
+  },
+  {
+    "channel_id": "UC-UYoJdfHiMXzO_FHfQaABw",
+    "handle": null,
+    "custom_url": null,
+    "title": null,
+    "description": null,
+    "owner": null,
+    "notes": null,
+    "tags": [],
+    "aliases": [
+      "UC-UYoJdfHiMXzO_FHfQaABw"
+    ],
+    "file_search_store_name": null,
+    "metadata": {
+      "subscriber_count": null,
+      "video_count": null,
+      "view_count": null,
+      "latest_video_id": null,
+      "last_refreshed_at": null,
+      "snapshot": {}
+    },
+    "uploads_playlist_id": "UU-UYoJdfHiMXzO_FHfQaABw",
+    "created_at": "2026-01-03T20:35:31.170602",
+    "updated_at": "2026-01-03T20:35:31.170622"
+  },
+  {
+    "channel_id": "UCR2Pbg310vXj1_9o3Q2RaMw",
+    "handle": null,
+    "custom_url": null,
+    "title": null,
+    "description": null,
+    "owner": null,
+    "notes": null,
+    "tags": [],
+    "aliases": [
+      "UCR2Pbg310vXj1_9o3Q2RaMw"
+    ],
+    "file_search_store_name": null,
+    "metadata": {
+      "subscriber_count": null,
+      "video_count": null,
+      "view_count": null,
+      "latest_video_id": null,
+      "last_refreshed_at": null,
+      "snapshot": {}
+    },
+    "uploads_playlist_id": "UUR2Pbg310vXj1_9o3Q2RaMw",
+    "created_at": "2026-01-03T22:02:16.895143",
+    "updated_at": "2026-01-03T22:02:16.895182"
+  },
+  {
+    "channel_id": "UCnbuCp4py12SNWCc5TI1RHA",
+    "handle": null,
+    "custom_url": null,
+    "title": null,
+    "description": null,
+    "owner": null,
+    "notes": null,
+    "tags": [],
+    "aliases": [
+      "UCnbuCp4py12SNWCc5TI1RHA"
+    ],
+    "file_search_store_name": null,
+    "metadata": {
+      "subscriber_count": null,
+      "video_count": null,
+      "view_count": null,
+      "latest_video_id": null,
+      "last_refreshed_at": null,
+      "snapshot": {}
+    },
+    "uploads_playlist_id": "UUnbuCp4py12SNWCc5TI1RHA",
+    "created_at": "2026-01-03T22:08:15.621097",
+    "updated_at": "2026-01-03T22:08:15.621112"
   }
 ]

@@ -110,10 +110,10 @@ def render_channel_sidebar() -> List[str]:
             notes_value = st.text_area(
                 "Analyst notes",
                 value=channel.get("notes") or "",
-                key=f"notes-{channel_id}",
+                key=f"sidebar-notes-{channel_id}",
                 height=90,
             )
-            if st.button("Save notes", key=f"save-notes-{channel_id}"):
+            if st.button("Save notes", key=f"sidebar-save-notes-{channel_id}"):
                 channel_service.update_partial(channel_id, notes=notes_value.strip() or None)
                 st.sidebar.success("Notes saved.")
                 st.rerun()

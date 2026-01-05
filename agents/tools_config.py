@@ -4,11 +4,13 @@ from tools.analysis_tool import FileAnalysisTool
 from tools.channel_registry_tool import ManageChannelRegistryTool, RefreshChannelMetadataTool
 from tools.file_search_tool import (
     CreateFileSearchStoreTool,
+    FilterFileSearchDocumentsTool,
     QueryFileSearchStoreTool,
     UploadFileSearchDocumentTool,
 )
 from tools.transcript_tool import AnalyzeVideoTool
 from tools.batch_tool import SubmitBatchJobTool, GetBatchResultsTool
+from tools.stenographer_tool import StenographerTool
 from tools.video_memory_tools import (
     IngestVideoTool,
     MaintainVideoMetadataTool,
@@ -30,6 +32,7 @@ from agents.delegation_tools import (
     DiscoveryDelegationTool,
     AnalystDelegationTool,
     HistorianDelegationTool,
+    StenographerDelegationTool,
 )
 
 DISCOVERY_TOOLS = [
@@ -65,9 +68,16 @@ MEMORY_TOOLS = [
     CreateFileSearchStoreTool(),
 ]
 
+STENOGRAPHER_TOOLS = [
+    StenographerTool(),
+    FilterFileSearchDocumentsTool(),
+    QueryFileSearchStoreTool(),
+]
+
 # The orchestrator should only be able to delegate to sub-agents.
 ORCHESTRATOR_TOOLS = [
     DiscoveryDelegationTool(),
     AnalystDelegationTool(),
     HistorianDelegationTool(),
+    StenographerDelegationTool(),
 ]

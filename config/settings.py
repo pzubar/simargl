@@ -75,5 +75,9 @@ FILE_SEARCH_MODEL = os.getenv("FILE_SEARCH_MODEL", GEMINI_MODEL_DEFAULT)
 FILE_SEARCH_POLL_SECONDS = float(os.getenv("FILE_SEARCH_POLL_SECONDS", "2.0"))
 FILE_SEARCH_POLL_TIMEOUT_SECONDS = float(os.getenv("FILE_SEARCH_POLL_TIMEOUT_SECONDS", "120.0"))
 
+# --- Stenographer configuration ---
+STENOGRAPHER_STORE_NAME = os.getenv("STENOGRAPHER_STORE_NAME", "transcripts-store")  # Resource name, if pre-provisioned
+STENOGRAPHER_STORE_DISPLAY_NAME = os.getenv("STENOGRAPHER_STORE_DISPLAY_NAME", "stenographer-store")
+
 
 

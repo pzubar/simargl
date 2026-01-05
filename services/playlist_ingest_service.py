@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, Union
 
 from config.settings import BASE_DIR
@@ -79,6 +79,24 @@ def _chunked(seq: Iterable[str], size: int) -> Iterable[List[str]]:
         yield chunk
 
 
+def _parse_published_at(value: Any) -> Optional[datetime]:
+    """Parse various publishedAt representations into an aware UTC datetime."""
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if isinstance(value, str):
+        trimmed = value.strip()
+        if not trimmed:
+            return None
+        try:
+            dt = datetime.fromisoformat(trimmed.replace("Z", "+00:00"))
+            return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        except ValueError:
+            return None
+    return None
+
+
 class PlaylistIngestService:
     """Enqueue and run uploads playlist ingestion, then enrich with video details."""
 
@@ -105,7 +123,7 @@ class PlaylistIngestService:
         self._ensure_db()
 
     # ---------- Public API ----------
-    def enqueue(self, channel_identifier: str, *, max_items: int = 300) -> Dict[str, Any]:
+    def enqueue(self, channel_identifier: str, *, max_items: int = 1500) -> Dict[str, Any]:
         channel_id = self._resolve_channel_id(channel_identifier)
         playlist_id = self._resolve_playlist_id(channel_id)
 
@@ -189,7 +207,7 @@ class PlaylistIngestService:
         self._save_job_record(job)
         return job
 
-    def enqueue_and_run(self, channel_identifier: str, *, max_items: int = 1000) -> Dict[str, Any]:
+    def enqueue_and_run(self, channel_identifier: str, *, max_items: int = 10000) -> Dict[str, Any]:
         job = self.enqueue(channel_identifier, max_items=max_items)
         return self.run_job(job["job_id"])
 
@@ -269,13 +287,19 @@ class PlaylistIngestService:
                 continue
             video_ids.append(video_id)
 
+            parsed_published_at = _parse_published_at(snippet.get("publishedAt"))
             payload: Dict[str, Any] = {
                 "title": snippet.get("title"),
-                "published_at": snippet.get("publishedAt"),
                 "channel_id": snippet.get("channelId") or channel_id,
-                "channel_title": snippet.get("channelTitle"),
-                "tags": snippet.get("tags") or [],
             }
+            if parsed_published_at:
+                payload["published_at"] = parsed_published_at
+            else:
+                logger.warning(
+                    "Could not parse publishedAt for video %s: %r",
+                    video_id,
+                    snippet.get("publishedAt"),
+                )
             try:
                 self._video_service.upsert_metadata(
                     video_id,
@@ -329,11 +353,11 @@ class PlaylistIngestService:
                 if item.get("duration_seconds") is not None:
                     updates["duration_sec"] = item.get("duration_seconds")
                 publish_date = item.get("publish_date") or item.get("snippet", {}).get("publishedAt")
-                if publish_date:
-                    updates["published_at"] = publish_date
-                tags = item.get("tags")
-                if tags is not None:
-                    updates["tags"] = tags
+                parsed_publish_date = _parse_published_at(publish_date)
+                if parsed_publish_date:
+                    updates["published_at"] = parsed_publish_date
+                elif publish_date:
+                    logger.warning("Could not parse enriched published_at for %s: %r", video_id, publish_date)
 
                 if updates:
                     try:

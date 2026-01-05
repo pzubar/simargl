@@ -9,7 +9,6 @@ from typing import Any, Dict, Optional
 from googleapiclient.errors import HttpError
 
 from config.settings import CHANNEL_METADATA_TTL_HOURS
-from memory import ChannelMemoryItem, get_channel_memory_service
 
 from . import get_channel_registry
 from .models import ChannelRecord
@@ -19,12 +18,11 @@ logger = logging.getLogger(__name__)
 
 
 class ChannelRefreshService:
-    """Fetches fresh snippet/statistics data and updates the registry + memory."""
+    """Fetches fresh snippet/statistics data and updates the registry."""
 
     def __init__(self, ttl_hours: float = CHANNEL_METADATA_TTL_HOURS):
         self._ttl = ttl_hours
         self._registry = get_channel_registry()
-        self._memory = get_channel_memory_service()
 
     def refresh(self, identifier: str, force: bool = False) -> ChannelRecord:
         """Refresh metadata if stale or forced."""
@@ -38,7 +36,6 @@ class ChannelRefreshService:
 
         self._apply_payload(record, payload)
         self._registry.upsert(record)
-        self._write_memory_snapshot(record)
         return record
 
     def _is_stale(self, record: ChannelRecord) -> bool:
@@ -100,32 +97,6 @@ class ChannelRefreshService:
         record.aliases = dedupe_aliases(record.aliases + [candidate for candidate in alias_candidates if candidate])
         record.updated_at = datetime.utcnow()
 
-    def _write_memory_snapshot(self, record: ChannelRecord) -> None:
-        summary_bits = [
-            f"Channel title: {record.title or 'Unknown'}",
-            f"Handle: @{record.handle}" if record.handle else "",
-        ]
-        if record.metadata.subscriber_count is not None:
-            summary_bits.append(f"Subscribers: {record.metadata.subscriber_count:,}")
-        if record.metadata.video_count is not None:
-            summary_bits.append(f"Videos: {record.metadata.video_count:,}")
-        fact = " | ".join(bit for bit in summary_bits if bit)
-        if not fact:
-            return
-        try:
-            self._memory.remember(
-                [
-                    ChannelMemoryItem(
-                        channel_id=record.channel_id,
-                        fact=fact,
-                        owner=record.owner,
-                        tags=["channel_profile"],
-                    )
-                ]
-            )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("Failed to store channel memory for %s: %s", record.channel_id, exc)
-
     @staticmethod
     def _safe_int(value: Any) -> Optional[int]:
         try:
@@ -135,5 +106,3 @@ class ChannelRefreshService:
 
 
 __all__ = ["ChannelRefreshService"]
-
-

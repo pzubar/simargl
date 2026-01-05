@@ -54,6 +54,10 @@ class VideoMetadataService:
         if not video_id:
             raise ValueError("video_id is required")
 
+        # Strip disallowed fields before persistence (e.g., raw YouTube tags, channel title copies).
+        disallowed_fields = {"tags", "channel_title"}
+        sanitized_payload = {k: v for k, v in payload.items() if k not in disallowed_fields}
+
         doc_ref = self._collection.document(video_id)
         existing_snapshot = doc_ref.get()
         existing = existing_snapshot.to_dict() if existing_snapshot.exists else {}
@@ -63,10 +67,13 @@ class VideoMetadataService:
         merged_custom = sorted(set(existing_custom + incoming_custom)) if merge_custom_tags else incoming_custom
 
         final_payload: Dict[str, Any] = {
-            **payload,
+            **sanitized_payload,
             "video_id": video_id,
             "custom_tags": merged_custom,
             "updated_at": firestore.SERVER_TIMESTAMP,
+            # Ensure Firestore does not retain deprecated/duplicated fields.
+            "tags": firestore.DELETE_FIELD,
+            "channel_title": firestore.DELETE_FIELD,
         }
         # Preserve create time for new docs.
         if not existing_snapshot.exists:
@@ -131,14 +138,17 @@ class VideoMetadataService:
         custom_tag: Optional[str] = None,
         limit: int = 50,
         start_after_published_at: Optional[Any] = None,
+        descending: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Paged listing ordered by published_at desc with optional cursor."""
+        """Paged listing ordered by published_at with optional cursor."""
         query = self._collection
         if custom_tag:
             query = query.where("custom_tags", "array_contains", custom_tag)
-        query = query.order_by("published_at", direction=firestore.Query.DESCENDING)
+
+        direction = firestore.Query.DESCENDING if descending else firestore.Query.ASCENDING
+        query = query.order_by("published_at", direction=direction)
         if start_after_published_at is not None:
-            query = query.start_after({"published_at": start_after_published_at})
+            query = query.start_after(start_after_published_at)
         try:
             docs = query.limit(limit).stream()
             results: List[Dict[str, Any]] = []
@@ -180,16 +190,18 @@ class VideoMetadataService:
         *,
         limit: int = 50,
         start_after_published_at: Optional[Any] = None,
+        descending: bool = True,
     ) -> List[Dict[str, Any]]:
-        """Paged listing for a specific channel ordered by published_at desc."""
+        """Paged listing for a specific channel ordered by published_at."""
         if not channel_id:
             return []
+        direction = firestore.Query.DESCENDING if descending else firestore.Query.ASCENDING
         query = (
             self._collection.where("channel_id", "==", channel_id)
-            .order_by("published_at", direction=firestore.Query.DESCENDING)
+            .order_by("published_at", direction=direction)
         )
         if start_after_published_at is not None:
-            query = query.start_after({"published_at": start_after_published_at})
+            query = query.start_after(start_after_published_at)
         try:
             docs = query.limit(limit).stream()
             results: List[Dict[str, Any]] = []
@@ -390,6 +402,7 @@ class VideoMetadataService:
 
 
 __all__ = ["VideoMetadataService"]
+
 
 
 

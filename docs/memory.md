@@ -11,7 +11,7 @@ This release moves the agent from transient memory into a hybrid design:
 - `videos` documents (key: `video_id`):
   - `title`, `published_at`, `duration_sec`
   - `view_count`, `like_count`
-  - `tags`, `custom_tags` (user/agent maintained)
+  - `custom_tags` (user/agent maintained)
   - `agent_summary`, `channel_id`, `rag_resource_name`
 - `channels` documents (key: `channel_id`):
   - `channel_title`, `description`, `total_videos_indexed`, `last_indexed_at`
